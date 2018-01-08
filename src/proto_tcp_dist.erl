@@ -39,7 +39,7 @@
 %%
 
 -export([listen/1, accept/1, accept_connection/5,
-         setup/5, close/1, select/1, is_node_name/1]).
+	 setup/5, close/1, select/1, is_node_name/1]).
 
 %% Optional
 -export([setopts/2, getopts/2]).
@@ -65,12 +65,12 @@
 
 select(Node) ->
     case split_node(atom_to_list(Node), $@, []) of
-        [_, Host] ->
-            case inet:getaddr(Host, inet) of
+	[_, Host] ->
+	    case inet:getaddr(Host, inet) of
                 {ok,_} -> true;
                 _ -> false
             end;
-        _ -> false
+	_ -> false
     end.
 
 %% ------------------------------------------------------------
@@ -80,58 +80,58 @@ select(Node) ->
 
 listen(Name) ->
     case do_listen([binary, {active, false}, {packet,2}, {reuseaddr, true}]) of
-        {ok, Socket} ->
-            TcpAddress = get_tcp_address(Socket),
-            {_,Port} = TcpAddress#net_address.address,
-            ErlEpmd = net_kernel:epmd_module(),
-            case ErlEpmd:register_node(Name, Port) of
-                {ok, Creation} ->
-                    {ok, {Socket, TcpAddress, Creation}};
-                Error ->
-                    Error
-            end;
-        Error ->
-            Error
+	{ok, Socket} ->
+	    TcpAddress = get_tcp_address(Socket),
+	    {_,Port} = TcpAddress#net_address.address,
+	    ErlEpmd = net_kernel:epmd_module(),
+	    case ErlEpmd:register_node(Name, Port) of
+		{ok, Creation} ->
+		    {ok, {Socket, TcpAddress, Creation}};
+		Error ->
+		    Error
+	    end;
+	Error ->
+	    Error
     end.
 
 do_listen(Options) ->
     {First,Last} = case application:get_env(kernel,inet_dist_listen_min) of
-                       {ok,N} when is_integer(N) ->
-                           case application:get_env(kernel,
-                                                    inet_dist_listen_max) of
-                               {ok,M} when is_integer(M) ->
-                                   {N,M};
-                               _ ->
-                                   {N,N}
-                           end;
-                       _ ->
-                           {0,0}
-                   end,
+		       {ok,N} when is_integer(N) ->
+			   case application:get_env(kernel,
+						    inet_dist_listen_max) of
+			       {ok,M} when is_integer(M) ->
+				   {N,M};
+			       _ ->
+				   {N,N}
+			   end;
+		       _ ->
+			   {0,0}
+		   end,
     do_listen(First, Last, listen_options([{backlog,128}|Options])).
 
 do_listen(First,Last,_) when First > Last ->
     {error,eaddrinuse};
 do_listen(First,Last,Options) ->
     case gen_tcp:listen(First, Options) of
-        {error, eaddrinuse} ->
-            do_listen(First+1,Last,Options);
-        Other ->
-            Other
+	{error, eaddrinuse} ->
+	    do_listen(First+1,Last,Options);
+	Other ->
+	    Other
     end.
 
 listen_options(Opts0) ->
     Opts1 =
-        case application:get_env(kernel, inet_dist_use_interface) of
-            {ok, Ip} ->
-                [{ip, Ip} | Opts0];
-            _ ->
-                Opts0
-        end,
+	case application:get_env(kernel, inet_dist_use_interface) of
+	    {ok, Ip} ->
+		[{ip, Ip} | Opts0];
+	    _ ->
+		Opts0
+	end,
     case application:get_env(kernel, inet_dist_listen_options) of
-        {ok,ListenOpts} ->
-            ListenOpts ++ Opts1;
-        _ ->
-            Opts1
+	{ok,ListenOpts} ->
+	    ListenOpts ++ Opts1;
+	_ ->
+	    Opts1
     end.
 
 
@@ -145,13 +145,13 @@ accept(Listen) ->
 accept_loop(Kernel, Listen) ->
     ?trace("~p~n",[{?MODULE, accept_loop, self()}]),
     case gen_tcp:accept(Listen) of
-        {ok, Socket} ->
+	{ok, Socket} ->
             DistCtrl = spawn_dist_cntrlr(Socket), 
             ?trace("~p~n",[{?MODULE, accept_loop, accepted, Socket, DistCtrl, self()}]),
-            flush_controller(DistCtrl, Socket),
-            gen_tcp:controlling_process(Socket, DistCtrl),
-            flush_controller(DistCtrl, Socket),
-            Kernel ! {accept,self(),DistCtrl,inet,tcp},
+	    flush_controller(DistCtrl, Socket),
+	    gen_tcp:controlling_process(Socket, DistCtrl),
+	    flush_controller(DistCtrl, Socket),
+	    Kernel ! {accept,self(),DistCtrl,inet,tcp},
             receive
                 {Kernel, controller, Pid} ->
                     call_ctrlr(DistCtrl, {supervisor, Pid}),
@@ -159,21 +159,21 @@ accept_loop(Kernel, Listen) ->
                 {Kernel, unsupported_protocol} ->
                     exit(unsupported_protocol)
             end,
-            accept_loop(Kernel, Listen);
-        Error ->
-            exit(Error)
+	    accept_loop(Kernel, Listen);
+	Error ->
+	    exit(Error)
     end.
 
 flush_controller(Pid, Socket) ->
     receive
-        {tcp, Socket, Data} ->
-            Pid ! {tcp, Socket, Data},
-            flush_controller(Pid, Socket);
-        {tcp_closed, Socket} ->
-            Pid ! {tcp_closed, Socket},
-            flush_controller(Pid, Socket)
+	{tcp, Socket, Data} ->
+	    Pid ! {tcp, Socket, Data},
+	    flush_controller(Pid, Socket);
+	{tcp_closed, Socket} ->
+	    Pid ! {tcp_closed, Socket},
+	    flush_controller(Pid, Socket)
     after 0 ->
-            ok
+	    ok
     end.
 
 %% ------------------------------------------------------------
@@ -183,29 +183,29 @@ flush_controller(Pid, Socket) ->
 
 accept_connection(AcceptPid, DistCtrl, MyNode, Allowed, SetupTime) ->
     spawn_opt(?MODULE, do_accept,
-              [self(), AcceptPid, DistCtrl, MyNode, Allowed, SetupTime],
-              [link, {priority, max}]).
+	      [self(), AcceptPid, DistCtrl, MyNode, Allowed, SetupTime],
+	      [link, {priority, max}]).
 
 do_accept(Kernel, AcceptPid, DistCtrl, MyNode, Allowed, SetupTime) ->
     ?trace("~p~n",[{?MODULE, do_accept, self(), MyNode}]),
     receive
-        {AcceptPid, controller} ->
-            Timer = dist_util:start_timer(SetupTime),
-            case check_ip(DistCtrl) of
-                true ->
+	{AcceptPid, controller} ->
+	    Timer = dist_util:start_timer(SetupTime),
+	    case check_ip(DistCtrl) of
+		true ->
                     HSData0 = hs_data_common(DistCtrl),
-                    HSData = HSData0#hs_data{kernel_pid = Kernel,
+		    HSData = HSData0#hs_data{kernel_pid = Kernel,
                                              this_node = MyNode,
                                              socket = DistCtrl,
                                              timer = Timer,
                                              this_flags = 0,
                                              allowed = Allowed},
-                    dist_util:handshake_other_started(HSData);
-                {false,IP} ->
-                    error_msg("** Connection attempt from "
-                              "disallowed IP ~w ** ~n", [IP]),
-                    ?shutdown(no_node)
-            end
+		    dist_util:handshake_other_started(HSData);
+		{false,IP} ->
+		    error_msg("** Connection attempt from "
+			      "disallowed IP ~w ** ~n", [IP]),
+		    ?shutdown(no_node)
+	    end
     end.
 
 %% we may not always want the nodelay behaviour
@@ -213,14 +213,14 @@ do_accept(Kernel, AcceptPid, DistCtrl, MyNode, Allowed, SetupTime) ->
 
 nodelay() ->
     case application:get_env(kernel, dist_nodelay) of
-        undefined ->
-            {nodelay, true};
-        {ok, true} ->
-            {nodelay, true};
-        {ok, false} ->
-            {nodelay, false};
-        _ ->
-            {nodelay, true}
+	undefined ->
+	    {nodelay, true};
+	{ok, true} ->
+	    {nodelay, true};
+	{ok, false} ->
+	    {nodelay, false};
+	_ ->
+	    {nodelay, true}
     end.
 
 %% ------------------------------------------------------------
@@ -230,34 +230,34 @@ nodelay() ->
 
 setup(Node, Type, MyNode, LongOrShortNames,SetupTime) ->
     spawn_opt(?MODULE, do_setup, 
-              [self(), Node, Type, MyNode, LongOrShortNames, SetupTime],
-              [link, {priority, max}]).
+	      [self(), Node, Type, MyNode, LongOrShortNames, SetupTime],
+	      [link, {priority, max}]).
 
 do_setup(Kernel, Node, Type, MyNode, LongOrShortNames, SetupTime) ->
     ?trace("~p~n",[{?MODULE, do_setup, self(), Node}]),
     [Name, Address] = splitnode(Node, LongOrShortNames),
     case inet:getaddr(Address, inet) of
-        {ok, Ip} ->
-            Timer = dist_util:start_timer(SetupTime),
-            ErlEpmd = net_kernel:epmd_module(),
-            case ErlEpmd:port_please(Name, Ip) of
-                {port, TcpPort, Version} ->
-                    ?trace("port_please(~p) -> version ~p~n", 
-                           [Node,Version]),
-                    dist_util:reset_timer(Timer),
-                    case
-                        gen_tcp:connect(
-                          Ip, TcpPort,
-                          connect_options([binary, {active, false}, {packet, 2}]))
-                    of
-                        {ok, Socket} ->
+	{ok, Ip} ->
+	    Timer = dist_util:start_timer(SetupTime),
+	    ErlEpmd = net_kernel:epmd_module(),
+	    case ErlEpmd:port_please(Name, Ip) of
+		{port, TcpPort, Version} ->
+		    ?trace("port_please(~p) -> version ~p~n", 
+			   [Node,Version]),
+		    dist_util:reset_timer(Timer),
+		    case
+			gen_tcp:connect(
+			  Ip, TcpPort,
+			  connect_options([binary, {active, false}, {packet, 2}]))
+		    of
+			{ok, Socket} ->
                             DistCtrl = spawn_dist_cntrlr(Socket), 
                             call_ctrlr(DistCtrl, {supervisor, self()}),
                             flush_controller(DistCtrl, Socket),
                             gen_tcp:controlling_process(Socket, DistCtrl),
                             flush_controller(DistCtrl, Socket),
                             HSData0 = hs_data_common(DistCtrl),
-                            HSData = HSData0#hs_data{kernel_pid = Kernel,
+			    HSData = HSData0#hs_data{kernel_pid = Kernel,
                                                      other_node = Node,
                                                      this_node = MyNode,
                                                      socket = DistCtrl,
@@ -265,32 +265,32 @@ do_setup(Kernel, Node, Type, MyNode, LongOrShortNames, SetupTime) ->
                                                      this_flags = 0,
                                                      other_version = Version,
                                                      request_type = Type},
-                            dist_util:handshake_we_started(HSData);
-                        _ ->
-                            %% Other Node may have closed since 
-                            %% port_please !
-                            ?trace("other node (~p) "
-                                   "closed since port_please.~n", 
-                                   [Node]),
-                            ?shutdown(Node)
-                    end;
-                _ ->
-                    ?trace("port_please (~p) "
-                           "failed.~n", [Node]),
-                    ?shutdown(Node)
-            end;
-        _Other ->
-            ?trace("inet_getaddr(~p) "
-                   "failed (~p).~n", [Node,_Other]),
-            ?shutdown(Node)
+			    dist_util:handshake_we_started(HSData);
+			_ ->
+			    %% Other Node may have closed since 
+			    %% port_please !
+			    ?trace("other node (~p) "
+				   "closed since port_please.~n", 
+				   [Node]),
+			    ?shutdown(Node)
+		    end;
+		_ ->
+		    ?trace("port_please (~p) "
+			   "failed.~n", [Node]),
+		    ?shutdown(Node)
+	    end;
+	_Other ->
+	    ?trace("inet_getaddr(~p) "
+		   "failed (~p).~n", [Node,_Other]),
+	    ?shutdown(Node)
     end.
 
 connect_options(Opts) ->
     case application:get_env(kernel, inet_dist_connect_options) of
-        {ok,ConnectOpts} ->
-            ConnectOpts ++ Opts;
-        _ ->
-            Opts
+	{ok,ConnectOpts} ->
+	    ConnectOpts ++ Opts;
+	_ ->
+	    Opts
     end.
 
 %%
@@ -303,10 +303,10 @@ close(Listen) ->
 %% If Node is illegal terminate the connection setup!!
 splitnode(Node, LongOrShortNames) ->
     case split_node(atom_to_list(Node), $@, []) of
-        [Name|Tail] when Tail =/= [] ->
-            Host = lists:append(Tail),
-            case split_node(Host, $., []) of
-                [_] when LongOrShortNames =:= longnames ->
+	[Name|Tail] when Tail =/= [] ->
+	    Host = lists:append(Tail),
+	    case split_node(Host, $., []) of
+		[_] when LongOrShortNames =:= longnames ->
                     case inet:parse_address(Host) of
                         {ok, _} ->
                             [Name, Host];
@@ -318,22 +318,22 @@ splitnode(Node, LongOrShortNames) ->
                                       [Host]),
                             ?shutdown(Node)
                     end;
-                L when length(L) > 1, LongOrShortNames =:= shortnames ->
-                    error_msg("** System NOT running to use fully qualified "
-                              "hostnames **~n"
-                              "** Hostname ~ts is illegal **~n",
-                              [Host]),
-                    ?shutdown(Node);
-                _ ->
-                    [Name, Host]
-            end;
-        [_] ->
-            error_msg("** Nodename ~p illegal, no '@' character **~n",
-                      [Node]),
-            ?shutdown(Node);
-        _ ->
-            error_msg("** Nodename ~p illegal **~n", [Node]),
-            ?shutdown(Node)
+		L when length(L) > 1, LongOrShortNames =:= shortnames ->
+		    error_msg("** System NOT running to use fully qualified "
+			      "hostnames **~n"
+			      "** Hostname ~ts is illegal **~n",
+			      [Host]),
+		    ?shutdown(Node);
+		_ ->
+		    [Name, Host]
+	    end;
+	[_] ->
+	    error_msg("** Nodename ~p illegal, no '@' character **~n",
+		      [Node]),
+	    ?shutdown(Node);
+	_ ->
+	    error_msg("** Nodename ~p illegal **~n", [Node]),
+	    ?shutdown(Node)
     end.
 
 split_node([Chr|T], Chr, Ack) -> [lists:reverse(Ack)|split_node(T, Chr, [])];
@@ -347,11 +347,11 @@ get_tcp_address(Socket) ->
     {ok, Address} = inet:sockname(Socket),
     {ok, Host} = inet:gethostname(),
     #net_address {
-                  address = Address,
-                  host = Host,
-                  protocol = tcp,
-                  family = inet
-                 }.
+		  address = Address,
+		  host = Host,
+		  protocol = tcp,
+		  family = inet
+		 }.
 
 %% ------------------------------------------------------------
 %% Do only accept new connection attempts from nodes at our
@@ -359,41 +359,41 @@ get_tcp_address(Socket) ->
 %% ------------------------------------------------------------
 check_ip(DistCtrl) ->
     case application:get_env(check_ip) of
-        {ok, true} ->
-            case get_ifs(DistCtrl) of
-                {ok, IFs, IP} ->
-                    check_ip(IFs, IP);
-                _ ->
-                    ?shutdown(no_node)
-            end;
-        _ ->
-            true
+	{ok, true} ->
+	    case get_ifs(DistCtrl) of
+		{ok, IFs, IP} ->
+		    check_ip(IFs, IP);
+		_ ->
+		    ?shutdown(no_node)
+	    end;
+	_ ->
+	    true
     end.
 
 get_ifs(DistCtrl) ->
     Socket = call_ctrlr(DistCtrl, socket),
     case inet:peername(Socket) of
-        {ok, {IP, _}} ->
-            case inet:getif(Socket) of
-                {ok, IFs} -> {ok, IFs, IP};
-                Error     -> Error
-            end;
-        Error ->
-            Error
+	{ok, {IP, _}} ->
+	    case inet:getif(Socket) of
+		{ok, IFs} -> {ok, IFs, IP};
+		Error     -> Error
+	    end;
+	Error ->
+	    Error
     end.
 
 check_ip([{OwnIP, _, Netmask}|IFs], PeerIP) ->
     case {inet_tcp:mask(Netmask, PeerIP), inet_tcp:mask(Netmask, OwnIP)} of
-        {M, M} -> true;
-        _      -> check_ip(IFs, PeerIP)
+	{M, M} -> true;
+	_      -> check_ip(IFs, PeerIP)
     end;
 check_ip([], PeerIP) ->
     {false, PeerIP}.
     
 is_node_name(Node) when is_atom(Node) ->
     case split_node(atom_to_list(Node), $@, []) of
-        [_, _Host] -> true;
-        _ -> false
+	[_, _Host] -> true;
+	_ -> false
     end;
 is_node_name(_Node) ->
     false.
@@ -490,9 +490,9 @@ getopts_fun(DistCtrl, Socket) ->
 
 setopts(S, Opts) ->
     case [Opt || {K,_}=Opt <- Opts,
-                 K =:= active orelse K =:= deliver orelse K =:= packet] of
-        [] -> inet:setopts(S,Opts);
-        Opts1 -> {error, {badopts,Opts1}}
+		 K =:= active orelse K =:= deliver orelse K =:= packet] of
+	[] -> inet:setopts(S,Opts);
+	Opts1 -> {error, {badopts,Opts1}}
     end.
 
 getopts(S, Opts) ->
@@ -522,7 +522,7 @@ address_fun() ->
     fun (Ctrlr, Node) ->
             case call_ctrlr(Ctrlr, {address, Node}) of
                 {error, no_node} -> %% No '@' or more than one '@' in node name.
-                    ?shutdown(no_node);
+		    ?shutdown(no_node);
                 Res ->
                     Res
             end
@@ -669,9 +669,9 @@ dist_cntrlr_setup_loop(Socket, TickHandler, Sup) ->
                                      [DHandle, Socket, Sup],
                                      [link] ++ ?DIST_CNTRL_COMMON_SPAWN_OPTS),
 
-            flush_controller(InputHandler, Socket),
-            gen_tcp:controlling_process(Socket, InputHandler),
-            flush_controller(InputHandler, Socket),
+	    flush_controller(InputHandler, Socket),
+	    gen_tcp:controlling_process(Socket, InputHandler),
+	    flush_controller(InputHandler, Socket),
 
             ok = erlang:dist_ctrl_input_handler(DHandle, InputHandler),
 
@@ -708,12 +708,10 @@ dist_cntrlr_input_loop(DHandle, Socket, Rcv, N) ->
             exit(connection_closed);
 
         {tcp, Socket, Data} ->
-            % io:format("<<SSSS ~p~n", [Data]),
             %% Incoming data from remote node...
             {Messages, NewRcv} = packet_receiver:collect(Data, Rcv),
             try
                 lists:foreach(fun({_, M}) ->
-                    % io:format("<<KKKK ~p~n", [M]),
                     erlang:dist_ctrl_put_data(DHandle, M)
                 end, Messages)
             catch _ : _ -> death_row()
@@ -734,7 +732,6 @@ dist_cntrlr_send_data(DHandle, Socket, Snd, More) ->
             erlang:dist_ctrl_get_data_notification(DHandle),
             {More, Snd};
         Data ->
-            % io:format("KKK>> ~p~n", [Data]),
             Ch = packet_channel:channel(Data),
             Snd1 = packet_sender:schedule(Ch, Data, Snd),
             {More1, Snd2} = dist_cntrlr_send_next(Socket, Snd1),
@@ -815,7 +812,6 @@ dist_cntrlr_send_loop(DHandle, Socket, Snd, false) ->
     dist_cntrlr_output_blocking_loop(DHandle, Socket, Snd).
 
 sock_send(Socket, Data) ->
-    % io:format("SSSS>> ~p~n", [Data]),
     try gen_tcp:send(Socket, Data) of
         ok -> ok;
         {error, Reason} -> death_row({send_error, Reason})
