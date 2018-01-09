@@ -7,7 +7,7 @@
 -export([start/0]).
 
 % Client-Side API Exports
--export([rtt/1]).
+-export([rtt/2]).
 -export([start_pingpong/2]).
 -export([stop_pingpong/1]).
 
@@ -25,9 +25,18 @@ start() -> spawn_link_benchmark_server().
 
 %--- Client-Side API Functions -------------------------------------------------
 
-rtt(Node) ->
+rtt(Node, true) ->
   T1 = os:timestamp(),
   case call_server(Node, ping) of
+    {ok, pong} ->
+      T2 = os:timestamp(),
+      {ok, timer:now_diff(T2, T1)};
+    Error -> Error
+  end;
+
+rtt(Node, false) ->
+  T1 = os:timestamp(),
+  case unmonitored_call_server(Node, ping) of
     {ok, pong} ->
       T2 = os:timestamp(),
       {ok, timer:now_diff(T2, T1)};
@@ -64,8 +73,23 @@ call(Pid, Msg) ->
   end.
 
 
+unmonitored_call(Pid, Msg) ->
+  Ref = make_ref(),
+  Pid ! {rpc, self(), Ref, Msg},
+  receive
+    {Ref, Result} -> {ok, Result}
+  after
+    ?TIMEOUT ->
+      {error, timeout}
+  end.
+
+
 call_server(Node, Msg) ->
   call({?SERVER, Node}, Msg).
+
+
+unmonitored_call_server(Node, Msg) ->
+  unmonitored_call({?SERVER, Node}, Msg).
 
 
 reply(From, Ref, Result) ->
