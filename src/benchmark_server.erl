@@ -8,7 +8,8 @@
 
 % Client-Side API Exports
 -export([rtt/2]).
--export([start_pingpong/2]).
+-export([prepare_pingpong/2]).
+-export([start_pingpong/1]).
 -export([stop_pingpong/1]).
 
 
@@ -44,8 +45,11 @@ rtt(Node, false) ->
   end.
 
 
-start_pingpong(Node, Size) ->
-  Pid = spawn_link_ping(Node, Size),
+prepare_pingpong(Node, Size) ->
+  {ok, spawn_link_ping(Node, Size)}.
+
+
+start_pingpong(Pid) ->
   call(Pid, start).
 
 

@@ -8,8 +8,8 @@
 
 %--- Macros --------------------------------------------------------------------
 
--define(RTT_CHECK_COUNT, 50).
--define(SETTLING_SLEEP, 3000).
+-define(RTT_CHECK_COUNT, 200).
+-define(SETTLING_SLEEP, 4000).
 
 -define(BENCHMARKS, [
 % {MONITORING, PINGPONG_COUNT, PINGPONG_SIZE,  DUMP}
@@ -26,6 +26,45 @@
   {     false,             10,       55*1024, false},
   {     false,             10,       89*1024, false},
   {     false,             10,      144*1024, false},
+
+  % {     false,           5760,           256, false},
+  % {     false,           2880,           512, false},
+  % {     false,           1440,          1024, false},
+  % {     false,            720,          2048, false},
+  % {     false,            480,          3072, false},
+  % {     false,            288,          5120, false},
+  % {     false,            180,          8192, false},
+  % {     false,            111,         13284, false},
+  % {     false,             68,         21685, false},
+  % {     false,             42,         35108, false},
+  % {     false,             26,         56714, false},
+  % {     false,             16,         92160, false},
+  % {     false,             10,        147456, false},
+
+  % {     false,             2584,         254, false},
+  % {     false,             1597,         410, false},
+  % {     false,              987,         664, false},
+  % {     false,              610,        1074, false},
+  % {     false,              377,        1738, false},
+  % {     false,              233,        2813, false},
+  % {     false,              144,        4551, false},
+  % {     false,               89,        7364, false},
+  % {     false,               55,       11916, false},
+  % {     false,               34,       19275, false},
+  % {     false,               21,       31208, false},
+  % {     false,               13,       50412, false},
+  % {     false,                8,       81920, false},
+  % {     false,                5,      131072, false},
+
+  % {     false,             2000,          50, false},
+  % {     false,             1000,         100, false},
+  % {     false,              500,         200, false},
+  % {     false,              250,         400, false},
+  % {     false,              125,         800, false},
+  % {     false,               63,        1600, false},
+  % {     false,               31,        3200, false},
+  % {     false,               16,        6400, false},
+  % {     false,                8,       12800, false},
 
   {     false,              0,             0, false}
 ]).
@@ -61,8 +100,8 @@ benchmark(Benchmarks, Node) ->
 benchmark([], _Node, Acc) -> lists:reverse(Acc);
 
 benchmark([{Monitoring, Count, Size, Dump} | Rest], Node, Acc) ->
-  io:format("~9w KB x ~2w : ", [trunc(Size / 1024), Count]),
-  Pids = start_pingpong(Node, Count, Size),
+  io:format("~9w B x ~4w : ", [Size, Count]),
+  Pids = start_pingpong(prepare_pingpong(Node, Count, Size)),
   timer:sleep(?SETTLING_SLEEP),
   Stats = measure_rtt(Node, Monitoring, ?RTT_CHECK_COUNT),
   stop_pingpong(Pids),
@@ -72,10 +111,10 @@ benchmark([{Monitoring, Count, Size, Dump} | Rest], Node, Acc) ->
 
 print_report(Results) ->
   io:format("==============================================================~n"),
-  io:format("Count ; Size (KB) ; RTT Med (ms) ; RTT Avg (ms) ; RTT Dev (ms)~n"),
-  lists:foreach(fun({Count, Size, _, {_, Avg, _, Dev, Med}}) ->
-    io:format("~5w ; ~9w ; ~12.2f ; ~12.2f ; ~12.4f~n",
-              [Count, trunc(Size / 1024), Med / 1000, Avg / 1000, Dev / 1000])
+  io:format("Count ;      Size ; RTT Med (ms) ; RTT Avg (ms) ; RTT Dev (ms)~n"),
+  lists:foreach(fun({Count, Size, _, {_, Avg, _, Dev, Med}})  ->
+      io:format("~5w ; ~9w ; ~12.2f ; ~12.2f ; ~12.4f~n",
+                [Count, Size, Med / 1000, Avg / 1000, Dev / 1000])
   end, Results),
   io:format("==============================================================~n"),
   ok.
@@ -117,19 +156,37 @@ measure_rtt(Node, Monitoring, Count, Acc) ->
   end.
 
 
-start_pingpong(Node, Count, Size) ->
-  start_pingpong(Node, Count, Size, []).
+
+prepare_pingpong(Node, Count, Size) ->
+  prepare_pingpong(Node, Count div 10, Count, Size, []).
 
 
-start_pingpong(_Node, 0, _Size, Acc) -> Acc;
+prepare_pingpong(_Node, _LogStep, 0, _Size, Acc) -> Acc;
 
-start_pingpong(Node, Count, Size, Acc) ->
-  case benchmark_server:start_pingpong(Node, Size) of
+prepare_pingpong(Node, LogStep, Count, Size, Acc) ->
+  case benchmark_server:prepare_pingpong(Node, Size) of
     {error, Reason} ->
       stop_pingpong(Acc),
       fatal("failed to start pingpong processes: ~p", [Reason]);
     {ok, Pid} ->
-      start_pingpong(Node, Count - 1, Size, [Pid | Acc])
+      prepare_pingpong(Node, LogStep, Count - 1, Size, [Pid | Acc])
+  end.
+
+
+start_pingpong(Pids) ->
+  Count = length(Pids),
+  start_pingpong(Count div 10, Count, Pids, Pids).
+
+
+start_pingpong(_LogStep, 0, All, []) -> All;
+
+start_pingpong(LogStep, Count, All, [Pid | Rest]) ->
+  case benchmark_server:start_pingpong(Pid) of
+    {error, Reason} ->
+      stop_pingpong(All),
+      fatal("failed to start pingpong processes: ~p", [Reason]);
+    {ok, Pid} ->
+      start_pingpong(LogStep, Count - 1, All, Rest)
   end.
 
 
