@@ -707,6 +707,13 @@ dist_cntrlr_input_loop(DHandle, Socket, Rcv, N) ->
             %% Connection to remote node terminated...
             exit(connection_closed);
 
+        {tcp, Socket, <<>>} ->
+            %% Incoming tick from remote node...
+            try erlang:dist_ctrl_put_data(DHandle, <<>>)
+            catch _ : _ -> death_row()
+            end,
+            dist_cntrlr_input_loop(DHandle, Socket, Rcv, N-1);
+
         {tcp, Socket, Data} ->
             %% Incoming data from remote node...
             {Messages, NewRcv} = packet_receiver:collect(Data, Rcv),
