@@ -413,7 +413,7 @@ hs_data_common(DistCtrl) ->
              mf_getstat = getstat_fun(DistCtrl, Socket),
              mf_tick = tick_fun(DistCtrl, TickHandler),
              add_flags = ?DFLAG_SEND_SENDER,
-             reject_flags = ?DFLAGS_STRICT_ORDER_DELIVERY}.
+             reject_flags = dist_util:strict_order_flags()}.
 
 %%% ------------------------------------------------------------
 %%% Distribution controller processes
