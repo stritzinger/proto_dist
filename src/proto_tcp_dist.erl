@@ -573,6 +573,7 @@ dist_cntrlr_tick_handler(Socket) ->
     receive
         tick ->
             %% May block due to busy port...
+            % io:format(standard_error, ">>>>> TICK~n", []),
             sock_send(Socket, "");
         _ ->
             ok
@@ -709,6 +710,7 @@ dist_cntrlr_input_loop(DHandle, Socket, Rcv, N) ->
 
         {tcp, Socket, <<>>} ->
             %% Incoming tick from remote node...
+            % io:format(standard_error, "<<<<< TICK~n", []),
             try erlang:dist_ctrl_put_data(DHandle, <<>>)
             catch _ : _ -> death_row()
             end,
@@ -716,15 +718,23 @@ dist_cntrlr_input_loop(DHandle, Socket, Rcv, N) ->
 
         {tcp, Socket, Data} ->
             %% Incoming data from remote node...
-            {Messages, NewRcv} = packet_receiver:collect(Data, Rcv),
-            try
-                lists:foreach(fun({_, M}) ->
+            case packet_receiver:collect(Data, Rcv) of
+              {[], NewRcv} ->
+                % If nothing is collected we simulate a tick
+                % io:format(standard_error, "<<<<< FAKE TICK~n", []),
+                try erlang:dist_ctrl_put_data(DHandle, <<>>)
+                catch _ : _ -> death_row()
+                end,
+                dist_cntrlr_input_loop(DHandle, Socket, NewRcv, N-1);
+              {Messages, NewRcv} ->
+                try
+                  lists:foreach(fun({_, M}) ->
                     erlang:dist_ctrl_put_data(DHandle, M)
-                end, Messages)
-            catch _ : _ -> death_row()
-            end,
-            dist_cntrlr_input_loop(DHandle, Socket, NewRcv, N-1);
-
+                  end, Messages)
+                catch _ : _ -> death_row()
+                end,
+                dist_cntrlr_input_loop(DHandle, Socket, NewRcv, N-1)
+            end;
         _ ->
             %% Ignore...
             dist_cntrlr_input_loop(DHandle, Socket, Rcv, N)

@@ -68,15 +68,15 @@ collect(Packet, St) ->
   case packet_codec:decode(Packet) of
     <<>> -> {[<<>>], St}; % Empty packet is allowed for ticks
     PacketTup ->
-      % io:format("<<<<< ~p~n", [PacketTup]),
+      % {Ch, SeqNum, FragIdx, Data, _} = PacketTup,
+      % io:format(standard_error, "< ~p / ~5b ~4b ~3b~n", [{Ch, SeqNum, FragIdx, byte_size(Data)}]),
       {Packets, St1} = collect_packets(PacketTup, St),
       join_fragments(Packets, St1)
-      % case join_fragments(Packets, St1) of
-      %   {[], St2} -> {[], St2};
-      %   {Msgs, St2} ->
-      %     lists:foreach(fun({Ch, M}) -> io:format("RRRRR ~p / ~p~n", [Ch, M]) end, Msgs),
-      %     {Msgs, St2}
-      % end
+      % {X, St2} = join_fragments(Packets, St1),
+      % lists:foreach(fun({Ch, Message}) ->
+      %   io:format(standard_error, "<<<<< ~p / ~b~n", [Ch, byte_size(Message)]),
+      % end, X),
+      % {X, St2}
   end.
 
 

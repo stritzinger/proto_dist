@@ -56,7 +56,7 @@ new(MaxSize) -> ?ST{max_size = MaxSize}.
   when Ch :: channel(), Message :: binary(), St :: t().
 
 schedule(Ch, Message, ?ST{tail = Tail, buffs = Buffs} = St) ->
-  % io:format("SSSSS ~p / ~p~n", [Ch, Message]),
+  % io:format(standard_error, ">>>>> ~p / ~b~n", [Ch, byte_size(Message)]),
   case maps:find(Ch, Buffs) of
     error ->
       % If we add a new channel we need to add it to the scheduling tail
@@ -88,7 +88,7 @@ next(?ST{head = [Ch | Head], tail = Tail, buffs = Buffs} = St) ->
           {SeqNum, St2} = next_seq_num(Ch, St),
           St3 = St2?ST{head = Head, tail = [Ch | Tail],
                        buffs = Buffs#{Ch := NewBuff}},
-          % io:format(">>>>> ~p~n", [{Ch, SeqNum, FragIdx, Data, Flags}]),
+          % io:format(standard_error, "> ~p / ~5b ~4b ~3b~n", [{Ch, SeqNum, FragIdx, byte_size(Data)}]),
           {packet_codec:encode(Ch, SeqNum, FragIdx, Data, Flags), St3}
       end
   end.
