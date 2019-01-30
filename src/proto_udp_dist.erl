@@ -22,8 +22,8 @@
 -define(time,
     erlang:convert_time_unit(erlang:monotonic_time()-erlang:system_info(start_time), native, microsecond)
 ).
--define(display(Term), ok).
-% -define(display(Term), erlang:display({?time, node(), self(), ?FUNCTION_NAME, Term})).
+% -define(display(Term), ok).
+-define(display(Term), erlang:display({?time, node(), self(), ?FUNCTION_NAME, Term})).
 
 %% In order to avoid issues with lingering signal binaries
 %% we enable off-heap message queue data as well as fullsweep
@@ -348,6 +348,9 @@ acceptor_loop(Kernel, ListenSocket) ->
             receive
                 {Kernel, controller, SupervisorPid} ->
                     Port = controller_set_supervisor(Controller, SupervisorPid),
+                    % We unlink to avoid crashing acceptor if controller process
+                    % dies:
+                    unlink(Controller),
                     ?display({acceptor, {reply_port, {SrcAddress, SrcPort}, Port}}),
                     ok = gen_udp:send(ListenSocket, SrcAddress, SrcPort, <<Port:16>>),
                     SupervisorPid ! {self(), controller};
