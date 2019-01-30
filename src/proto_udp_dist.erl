@@ -22,7 +22,8 @@
 -define(time,
     erlang:convert_time_unit(erlang:monotonic_time()-erlang:system_info(start_time), native, microsecond)
 ).
--define(display(Term), erlang:display({?time, node(), self(), ?FUNCTION_NAME, Term})).
+-define(display(Term), ok).
+% -define(display(Term), erlang:display({?time, node(), self(), ?FUNCTION_NAME, Term})).
 
 %% In order to avoid issues with lingering signal binaries
 %% we enable off-heap message queue data as well as fullsweep
@@ -121,12 +122,12 @@ do_setup(Kernel, Node, Type, MyNode, LongOrShortNames, SetupTime) ->
                         request_type = Type
                     },
                     dist_util:handshake_we_started(HSData);
-                Error ->
-                    ?display({error, {Epmd, port_please, [Name, IP], Error}}),
+                _Error ->
+                    ?display({error, {Epmd, port_please, [Name, IP], _Error}}),
                     ?shutdown(Node)
             end;
-        Other ->
-            ?display({error, {inet, getaddr, [Host, inet], Other}}),
+        _Other ->
+            ?display({error, {inet, getaddr, [Host, inet], _Other}}),
             ?shutdown(Node)
     end.
 
@@ -146,8 +147,8 @@ do_accept(Kernel, Acceptor, Controller, MyNode, Allowed, SetupTime) ->
                 allowed = Allowed
             },
             dist_util:handshake_other_started(HSData);
-        {false, IP} ->
-            ?display({do_accept, {error, {false, IP}}}),
+        {false, _IP} ->
+            ?display({do_accept, {error, {false, _IP}}}),
             ?shutdown(no_node)
     end.
 
@@ -260,15 +261,15 @@ hs_data(DistController) ->
                     Reply
             end
         end,
-        mf_setopts = fun(Controller, Opts) ->
-            ?display({mf_setopts, Controller, Opts})
+        mf_setopts = fun(_Controller, _Opts) ->
+            ?display({mf_setopts, _Controller, _Opts})
         end,
         mf_getopts = fun(Controller, Opts) ->
             ?display({mf_getopts, Controller, Opts}),
             request(Controller, {getopts, Opts})
         end,
-        mf_getstat = fun(Controller) ->
-            ?display({mf_getstat, Controller, Socket}),
+        mf_getstat = fun(_Controller) ->
+            ?display({mf_getstat, _Controller, Socket}),
             Res = case inet:getstat(Socket, [recv_cnt, send_cnt, send_pend]) of
                 {ok, Stat} ->
                     split_stat(Stat, 0, 0, 0);
@@ -278,8 +279,8 @@ hs_data(DistController) ->
             ?display({mf_getstat, Res}),
             Res
         end,
-        mf_tick = fun(Controller) ->
-            ?display({mf_tick, Controller}),
+        mf_tick = fun(_Controller) ->
+            ?display({mf_tick, _Controller, TickHandler}),
             TickHandler ! tick
         end
     }.
@@ -323,8 +324,8 @@ acceptor_init(Kernel) ->
         {active, true},
         {reuseaddr, true}
     ]),
-    {ok, Port} = inet:port(ListenSocket),
-    ?display({socket, ListenSocket, Port}),
+    {ok, _Port} = inet:port(ListenSocket),
+    ?display({socket, ListenSocket, _Port}),
     receive
         {From, Ref, get_address} ->
             {ok, Address} = inet:sockname(ListenSocket),
@@ -354,8 +355,8 @@ acceptor_loop(Kernel, ListenSocket) ->
                     exit(unsupported_protocol)
             end,
             acceptor_loop(Kernel, ListenSocket);
-        Other ->
-            ?display({unknown_msg, Other}),
+        _Other ->
+            ?display({unknown_msg, _Other}),
             acceptor_loop(Kernel, ListenSocket)
     end.
 
@@ -377,8 +378,8 @@ controller_init(ID) ->
             reply(From, Ref, ok),
             S
     end,
-    {ok, Port} = inet:port(Socket),
-    ?display({Socket, ID, Port}),
+    {ok, _Port} = inet:port(Socket),
+    ?display({Socket, ID, _Port}),
     TickHandler = spawn_opt(fun() ->
         controller_tick_loop(ID, Socket)
     end, [link, {priority, max}] ++ ?CONTROLLER_SPAWN_OPTS),
@@ -445,8 +446,8 @@ controller_setup_loop({IP, Port} = ID, Socket, TickHandler, Supervisor) ->
             erlang:dist_ctrl_get_data_notification(DHandle),
             ?display({output_init, ID, Socket}),
             controller_output_loop(ID, Socket, DHandle);
-        Other ->
-            ?display({controller, {msg, Other}}),
+        _Other ->
+            ?display({controller, {msg, _Other}}),
             controller_setup_loop(ID, Socket, TickHandler, Supervisor)
     end.
 
@@ -476,13 +477,13 @@ controller_input_loop(ID, Socket, DHandle, N) ->
             try
                 erlang:dist_ctrl_put_data(DHandle, Data)
             catch
-                C:R ->
-                    ?display({error, C, R}),
+                _C:_R:_ST ->
+                    ?display({error, _C, _R, _ST}),
                     death_row()
             end,
             N - 1;
-        Other ->
-            ?display({msg, Other}),
+        _Other ->
+            ?display({msg, _Other}),
             N
     end,
     controller_input_loop(ID, Socket, DHandle, NewN).
@@ -503,13 +504,13 @@ controller_output_loop(ID, Socket, DHandle) ->
             try
                 controller_send_data(ID, Socket, DHandle)
             catch
-                C:R:ST ->
-                    ?display({error, C, R, ST}),
+                _C:_R:_ST ->
+                    ?display({error, _C, _R, _ST}),
                     death_row()
             end,
             controller_output_loop(ID, Socket, DHandle);
-        Other ->
-            ?display({msg, Other}),
+        _Other ->
+            ?display({msg, _Other}),
             controller_output_loop(ID, Socket, DHandle)
     end.
 
