@@ -13,6 +13,7 @@
 
 % Includes
 -include_lib("kernel/include/net_address.hrl").
+-include_lib("kernel/include/dist.hrl").
 -include_lib("kernel/include/dist_util.hrl").
 -include_lib("kernel/include/logger.hrl").
 -include_lib("stdlib/include/assert.hrl").
@@ -22,8 +23,8 @@
 -define(time,
     erlang:convert_time_unit(erlang:monotonic_time()-erlang:system_info(start_time), native, microsecond)
 ).
-% -define(display(Term), ok).
--define(display(Term), erlang:display({?time, node(), self(), ?FUNCTION_NAME, Term})).
+-define(display(Term), ok).
+% -define(display(Term), erlang:display({?time, self(), ?FUNCTION_NAME, Term})).
 
 %% In order to avoid issues with lingering signal binaries
 %% we enable off-heap message queue data as well as fullsweep
@@ -183,39 +184,6 @@ split_node(Node, LongOrShortNames) ->
             error_logger:error_msg("** Nodename ~p illegal **~n", [Node]),
             ?shutdown(Node)
     end.
-    % case split_node(atom_to_list(Node), $@, []) of
-    %     [Name|Tail] when Tail =/= [] ->
-    %         Host = lists:append(Tail),
-    %         case split_node(Host, $., []) of
-    %             [_] when LongOrShortNames =:= longnames ->
-    %                 case inet:parse_address(Host) of
-    %                     {ok, _} ->
-    %                         [Name, Host];
-    %                     _ ->
-    %                         error_msg("** System running to use "
-    %                                 "fully qualified "
-    %                                 "hostnames **~n"
-    %                                 "** Hostname ~ts is illegal **~n",
-    %                                 [Host]),
-    %                         ?shutdown(Node)
-    %                 end;
-    %             L when length(L) > 1, LongOrShortNames =:= shortnames ->
-    %                 error_msg("** System NOT running to use fully qualified "
-    %                     "hostnames **~n"
-    %                     "** Hostname ~ts is illegal **~n",
-    %                     [Host]),
-    %                 ?shutdown(Node);
-    %             _ ->
-    %                 [Name, Host]
-    %         end;
-    %     [_] ->
-    %         error_msg("** Nodename ~p illegal, no '@' character **~n",
-    %             [Node]),
-    %         ?shutdown(Node);
-    %     _ ->
-    %         error_msg("** Nodename ~p illegal **~n", [Node]),
-    %         ?shutdown(Node)
-    % end.
 
 hs_data(DistController) ->
     TickHandler = request(DistController, tick_handler),
@@ -282,7 +250,9 @@ hs_data(DistController) ->
         mf_tick = fun(_Controller) ->
             ?display({mf_tick, _Controller, TickHandler}),
             TickHandler ! tick
-        end
+        end,
+        add_flags = ?DFLAG_SEND_SENDER,
+        reject_flags = dist_util:strict_order_flags()
     }.
 
 request(Pid, Req) -> request(Pid, Req, 5000).
@@ -448,7 +418,8 @@ controller_setup_loop({IP, Port} = ID, Socket, TickHandler, Supervisor) ->
             process_flag(priority, normal),
             erlang:dist_ctrl_get_data_notification(DHandle),
             ?display({output_init, ID, Socket}),
-            controller_output_loop(ID, Socket, DHandle);
+            Snd = packet_sender:new(),
+            controller_output_loop(ID, Socket, DHandle, Snd);
         _Other ->
             ?display({controller, {msg, _Other}}),
             controller_setup_loop(ID, Socket, TickHandler, Supervisor)
@@ -463,66 +434,97 @@ controller_input_init(ID, DHandle, Supervisor) ->
     link(Supervisor),
     % Ensure we don't put data before registered as input handler:
     receive {From, Ref, {socket, Socket}} -> reply(From, Ref, ok) end,
-    ?display({input_init, ID, Socket}),
+    Rcv = packet_receiver:new(),
+    ?display({input_init, ID, Socket, Rcv}),
     ok = inet:setopts(Socket, [{active, true}]),
-    controller_input_loop(ID, Socket, DHandle, 0).
+    controller_input_loop(ID, Socket, DHandle, Rcv).
 
-% controller_input_loop(ID, Socket, DHandle, N) when N =< ?CONTROLLER_ACTIVE_BUF / 2 ->
-%     ok = inet:setopts(Socket, [{active, ?CONTROLLER_ACTIVE_BUF - N}]),
-%     controller_input_loop(ID, Socket, DHandle, ?CONTROLLER_ACTIVE_BUF);
-controller_input_loop(ID, Socket, DHandle, N) ->
-    NewN = receive
-        {udp, Socket, _SrcAddress, _SrcPort, <<"tick">>} ->
-            ?display({got_tick, _SrcAddress, _SrcPort, <<"tick">>}),
-            N;
-        {udp, Socket, _SrcAddress, _SrcPort, Data} ->
-            ?display({udp, Socket, _SrcAddress, _SrcPort, Data}),
-            try
-                erlang:dist_ctrl_put_data(DHandle, Data)
-            catch
-                _C:_R:_ST ->
-                    ?display({error, _C, _R, _ST}),
-                    death_row()
-            end,
-            N - 1;
-        _Other ->
-            ?display({msg, _Other}),
-            N
-    end,
-    controller_input_loop(ID, Socket, DHandle, NewN).
+controller_input_loop(ID, Socket, DHandle, Rcv) ->
+    try
+        receive
+            {udp, Socket, _SrcAddress, _SrcPort, <<"tick\n">>} ->
+                ?display({got_tick, _SrcAddress, _SrcPort, <<"tick\n">>}),
+                controller_input_loop(ID, Socket, DHandle, Rcv);
+            {udp, Socket, _SrcAddress, _SrcPort, Data} ->
+                ?display({udp, Socket, _SrcAddress, _SrcPort, Data}),
+                NewRcv = case packet_receiver:collect(Data, Rcv) of
+                    {[], R} ->
+                        erlang:dist_ctrl_put_data(DHandle, <<>>),
+                        R;
+                    {Messages, R} ->
+                        lists:foreach(fun({_, M}) ->
+                            erlang:dist_ctrl_put_data(DHandle, M)
+                        end, Messages),
+                        R
+                end,
+                controller_input_loop(ID, Socket, DHandle, NewRcv);
+            _Other ->
+                ?display({msg, _Other}),
+                controller_input_loop(ID, Socket, DHandle, Rcv)
+        end
+    catch
+        _C:_R:_ST ->
+            ?display({error, _C, _R, _ST}),
+            death_row()
+    end.
 
-controller_send_data({Address, Port} = ID, Socket, DHandle) ->
+controller_gather_data(ID, Socket, DHandle, Snd) ->
     case erlang:dist_ctrl_get_data(DHandle) of
         none ->
-            erlang:dist_ctrl_get_data_notification(DHandle);
+            erlang:dist_ctrl_get_data_notification(DHandle),
+            Snd;
         Data ->
+            NewSnd = controller_add_data(Data, Snd),
+            NewNewSnd = controller_send_once(ID, Socket, NewSnd),
+            controller_gather_data(ID, Socket, DHandle, NewNewSnd)
+    end.
+
+controller_add_data(Data, Snd) ->
+    Ch = packet_channel:channel(Data),
+    packet_sender:schedule(Ch, Data, Snd).
+
+controller_send_once({Address, Port}, Socket, Snd) ->
+    case packet_sender:next(Snd) of
+        {empty, NewSnd} ->
+            NewSnd;
+        {Data, NewSnd} ->
             ?display({send, Socket, Address, Port, Data}),
             ok = gen_udp:send(Socket, Address, Port, Data),
-            controller_send_data(ID, Socket, DHandle)
+            NewSnd
     end.
 
-controller_output_loop(ID, Socket, DHandle) ->
-    receive
-        dist_data ->
-            try
-                controller_send_data(ID, Socket, DHandle)
-            catch
-                _C:_R:_ST ->
-                    ?display({error, _C, _R, _ST}),
-                    death_row()
-            end,
-            controller_output_loop(ID, Socket, DHandle);
-        _Other ->
-            ?display({msg, _Other}),
-            controller_output_loop(ID, Socket, DHandle)
+controller_send_all({Address, Port} = ID, Socket, Snd) ->
+    case packet_sender:next(Snd) of
+        {empty, NewSnd} ->
+            NewSnd;
+        {Data, NewSnd} ->
+            ?display({send, Socket, Address, Port, Data}),
+            ok = gen_udp:send(Socket, Address, Port, Data),
+            controller_send_all(ID, Socket, NewSnd)
     end.
 
+controller_output_loop(ID, Socket, DHandle, Snd) ->
+    try
+        receive
+            dist_data ->
+                NewSnd = controller_gather_data(ID, Socket, DHandle, Snd),
+                NewNewSnd = controller_send_all(ID, Socket, NewSnd),
+                controller_output_loop(ID, Socket, DHandle, NewNewSnd);
+            _Other ->
+                ?display({msg, _Other}),
+                controller_output_loop(ID, Socket, DHandle, Snd)
+        end
+    catch
+        _C:_R:_ST ->
+            ?display({error, _C, _R, _ST}),
+            death_row()
+    end.
 
 controller_tick_loop({IP, Port} = ID, Socket) ->
     receive
         tick ->
-            ?display({sending_tick, Socket, IP, Port, <<"tick">>}),
-            ok = gen_udp:send(Socket, IP, Port, <<"tick">>);
+            ?display({sending_tick, Socket, IP, Port, <<"tick\n">>}),
+            ok = gen_udp:send(Socket, IP, Port, <<"tick\n">>);
         _ ->
             ok
     end,
