@@ -15,10 +15,6 @@
 
 -define(ST, #?MODULE).
 
--define(PKT_SIZE, 1024).
-
--define(DEFAULT_CHANNEL, oob).
-
 -define(DOP_LINK, 1).
 -define(DOP_SEND, 2).
 -define(DOP_EXIT, 3).
