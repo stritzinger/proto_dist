@@ -43,4 +43,12 @@ if [ x"$DIST_PROTO" != x ]; then
   DIST_PROTO="-proto_dist $DIST_PROTO"
 fi
 
-erl -pa "$SCRIPTDIR/_build/default/lib/proto_dist/ebin" -noinput -sname "$SNAME" -setcookie "$COOKIE" $DIST_PROTO -s benchmark_client -- "$SERVER_HOST"
+erl \
+  -pa "$SCRIPTDIR/_build/default/lib/proto_dist/ebin" \
+  -noinput \
+  -sname "$SNAME" \
+  -setcookie "$COOKIE" \
+  "$DIST_PROTO" \
+  -s benchmark_client \
+  -- \
+  "$SERVER_HOST"
