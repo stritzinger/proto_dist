@@ -65,16 +65,15 @@ collect(Packet, St) ->
     <<>> -> {[<<>>], St}; % Empty packet is allowed for ticks
     PacketTup ->
       % {Ch, SeqNum, FragIdx, Data, _} = PacketTup,
-      % io:format(standard_error, "< ~p / ~5b ~4b ~3b~n", [{Ch, SeqNum, FragIdx, byte_size(Data)}]),
+      % io:format(standard_error, "<.  ~p / ~5b ~4b ~3b~n", [Ch, SeqNum, FragIdx, byte_size(Data)]),
       {Packets, St1} = collect_packets(PacketTup, St),
       join_fragments(Packets, St1)
       % {X, St2} = join_fragments(Packets, St1),
-      % lists:foreach(fun({Ch, Message}) ->
-      %   io:format(standard_error, "<<<<< ~p / ~b~n", [Ch, byte_size(Message)]),
+      % lists:foreach(fun({C, Message}) ->
+      %   io:format(standard_error, "<-- ~p / ~b~n", [C, byte_size(Message)])
       % end, X),
       % {X, St2}
   end.
-
 
 %--- Internal Functions --------------------------------------------------------
 
