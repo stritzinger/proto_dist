@@ -137,23 +137,32 @@ ping_setup(Node, Size) ->
   receive
     {rpc, From, Ref, start} -> reply(From, Ref, self())
   end,
-  PongPid ! {echo, self(), Data},
-  pingpong_loop(PongPid).
+  N = 0,
+  PongPid ! {echo, self(), Data, N},
+  ping_loop(PongPid, N).
 
-
-pong_setup(PingPid) ->
-  pingpong_loop(PingPid).
-
-
-pingpong_loop(ForPid) ->
+ping_loop(ForPid, N) ->
   receive
     stop -> ok;
     {rpc, From, Ref, stop} ->
       ForPid ! stop,
       reply(From, Ref, done);
-    {echo, ForPid, Data} ->
-      ForPid ! {echo, self(), Data},
-      pingpong_loop(ForPid);
-    _ ->
-      pingpong_loop(ForPid)
+    {echo, ForPid, Data, N} ->
+      ForPid ! {echo, self(), Data, N + 1},
+      ping_loop(ForPid, N + 1);
+    {echo, FromPid, _Data, X} ->
+      exit({out_of_sync, FromPid, X});
+    Msg ->
+      exit({unknown_msg, Msg})
+  end.
+
+pong_setup(PingPid) ->
+  pong_loop(PingPid).
+
+pong_loop(PingPid) ->
+  receive
+    {echo, PingPid, Data, N} ->
+      PingPid ! {echo, self(), Data, N};
+    Msg ->
+      error({unknown_msg, Msg})
   end.
