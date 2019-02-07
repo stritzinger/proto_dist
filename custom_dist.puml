@@ -6,7 +6,7 @@ skinparam DefaultMonospacedFontName "monospace"
 
 boundary Kernel
 box "Custom Distribution Implementation" #LightBlue
-    participant Dist
+    participant gen_tcp_dist
     control Acceptor
     control " "
     control Controller
@@ -15,28 +15,33 @@ end box
 actor Remote
 
 
-Kernel -> Dist: listen(Name)
-Dist -> Kernel: {ok, {ListenSocket, NetAddress, Creation}}
+Kernel -> gen_tcp_dist: listen(Name)
+gen_tcp_dist -> Kernel: {ok, {ListenSocket, NetAddress, Creation}}
 
-Kernel -> Dist: accept(ListenSocket)
-Dist -> Acceptor: spawn
+Kernel -> gen_tcp_dist: accept(ListenSocket)
+gen_tcp_dist -> Acceptor: spawn
 activate Acceptor
-Dist -> Kernel: pid()
+gen_tcp_dist -> Kernel: pid()
 
 Acceptor -> Acceptor: gen_tcp:accept(ListenSocket)
+
+... Idle ...
 
 alt Incoming Setup
     Remote -->> Acceptor: connect
     Acceptor -> Controller: spawn
     activate Controller
     Acceptor -->> Kernel: ! {accept, self(), Controller, Family, Protocol}
-    Kernel -> Dist: accept_connection(AcceptPid, Controller, MyNode, Allowed, SetupTime)
+    Kernel -> gen_tcp_dist: accept_connection(AcceptPid, Controller, MyNode, Allowed, SetupTime)
     create " "
-    Dist -> " ": spawn
+    gen_tcp_dist -> " ": spawn
     activate " "
+    Kernel -->> Acceptor: {Kernel, controller, Pid}
+    Acceptor -->> Kernel: {self(), controller}
+    Kernel -->> " ": {AcceptorPid, controller}
     " " -> " ": dist_util:handshake_other_started(HSData)
     destroy " "
-    Kernel <<-->> Controller: handshake
+    hnote over Kernel, Controller: Handshake
     Kernel -->> Controller: Handshake complete
 
     Controller -> "Controller Input": spawn
@@ -44,9 +49,9 @@ alt Incoming Setup
 else Outgoing Setup
     deactivate Controller
     deactivate "Controller Input"
-    Kernel -> Dist: "setup(Node, Type, MyNode, LongOrShortNames, SetupTime)"
+    Kernel -> gen_tcp_dist: "setup(Node, Type, MyNode, LongOrShortNames, SetupTime)"
     create " "
-    Dist -> " ": spawn
+    gen_tcp_dist -> " ": spawn
     activate " "
     " " -->> Remote: connect
     " " -> Controller: spawn
@@ -54,7 +59,7 @@ else Outgoing Setup
     " " -> " ": dist_util:handshake_we_started(HSData)
     destroy " "
 
-    Kernel <<-->> Controller: handshake
+    hnote over Kernel, Controller: Handshake
     Kernel -->> Controller: Handshake complete
 
     Controller -> "Controller Input": spawn
