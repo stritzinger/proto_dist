@@ -1,0 +1,80 @@
+@startuml
+
+' skinparam monochrome true
+skinparam DefaultMonospacedFontName "monospace"
+
+
+boundary Kernel
+box "Custom Distribution Implementation" #LightBlue
+    participant Dist
+    control Acceptor
+    control " "
+    control Controller
+    control "Controller Input"
+end box
+actor Remote
+
+
+Kernel -> Dist: listen(Name)
+Dist -> Kernel: {ok, {ListenSocket, NetAddress, Creation}}
+
+Kernel -> Dist: accept(ListenSocket)
+Dist -> Acceptor: spawn
+activate Acceptor
+Dist -> Kernel: pid()
+
+Acceptor -> Acceptor: gen_tcp:accept(ListenSocket)
+
+alt Incoming Setup
+    Remote -->> Acceptor: connect
+    Acceptor -> Controller: spawn
+    activate Controller
+    Acceptor -->> Kernel: ! {accept, self(), Controller, Family, Protocol}
+    Kernel -> Dist: accept_connection(AcceptPid, Controller, MyNode, Allowed, SetupTime)
+    create " "
+    Dist -> " ": spawn
+    activate " "
+    " " -> " ": dist_util:handshake_other_started(HSData)
+    destroy " "
+    Kernel <<-->> Controller: handshake
+    Kernel -->> Controller: Handshake complete
+
+    Controller -> "Controller Input": spawn
+    activate "Controller Input"
+else Outgoing Setup
+    deactivate Controller
+    deactivate "Controller Input"
+    Kernel -> Dist: "setup(Node, Type, MyNode, LongOrShortNames, SetupTime)"
+    create " "
+    Dist -> " ": spawn
+    activate " "
+    " " -->> Remote: connect
+    " " -> Controller: spawn
+    activate Controller
+    " " -> " ": dist_util:handshake_we_started(HSData)
+    destroy " "
+
+    Kernel <<-->> Controller: handshake
+    Kernel -->> Controller: Handshake complete
+
+    Controller -> "Controller Input": spawn
+    activate "Controller Input"
+end
+
+... Connected ...
+
+alt Incoming Data
+    Remote -->> "Controller Input": Data
+    "Controller Input" -> Kernel: erlang:dist_ctrl_put_data(DHandle, Data)
+else Outgoing Data
+    Kernel -->> Controller: dist_data
+    loop
+        Controller -> Kernel: erlang:dist_ctrl_get_data(DHandle)
+        Kernel -> Controller: Data
+        Controller -->> Remote: send
+    end
+    Kernel -> Controller: none
+    Controller -> Kernel: erlang:dist_ctrl_get_data_notification(DHandle)
+end
+
+@enduml
