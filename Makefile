@@ -1,0 +1,2 @@
+diagrams:
+	@plantuml -tsvg *.puml
