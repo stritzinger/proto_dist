@@ -41,7 +41,7 @@
 
 %--- Records -------------------------------------------------------------------
 
--record(state, {
+-record(acc_state, {
     mod       :: module(),
     mod_state :: term(),
     acceptor  :: pid(),
@@ -68,8 +68,8 @@
 ]).
 -define(CONTROLLER_ACTIVE_BUF, 10).
 
--define(CALL(State, Func, Args),
-    erlang:apply(State#state.mod, Func, Args ++ [State#state.mod_state])
+-define(CALL(Rec, Func, Args),
+    erlang:apply(Rec.mod, Func, Args ++ [Rec.mod_state])
 ).
 
 %--- Callbacks -----------------------------------------------------------------
@@ -79,9 +79,9 @@
 listen(Name) ->
     ?display({enter, [Name]}),
     Mod = callback_module(),
-    State0 = #state{mod = Mod},
+    State0 = #acc_state{mod = Mod},
     State1 = acceptor_spawn(State0),
-    {Protocol, Family, {_IP, Port} = Address} = acceptor_get_meta(State1#state.acceptor),
+    {Protocol, Family, {_IP, Port} = Address} = acceptor_get_meta(State1#acc_state.acceptor),
     {ok, Host} = inet:gethostname(),
     {ok, Creation} = (net_kernel:epmd_module()):register_node(Name, Port),
     NetAddress = #net_address{
@@ -95,7 +95,7 @@ listen(Name) ->
 -spec accept(term()) -> pid().
 accept(State) ->
     ?display({'CALL', [State]}),
-    acceptor_listen(State#state.acceptor),
+    acceptor_listen(State#acc_state.acceptor),
     State.
 
 -spec accept_connection(pid(), term(), node(), term(), term()) -> pid().
@@ -335,18 +335,18 @@ reply(Pid, Ref, Reply) ->
 acceptor_spawn(State) ->
     ?display({enter, []}),
     Kernel = self(),
-    Pid = spawn_opt(fun() -> acceptor_init(State#state{kernel = Kernel}) end, [
+    Pid = spawn_opt(fun() -> acceptor_init(State#acc_state{kernel = Kernel}) end, [
         link,
         {priority, max}
     ]),
-    State#state{acceptor = Pid}.
+    State#acc_state{acceptor = Pid}.
 
 acceptor_get_meta(Pid) -> request(Pid, get_meta).
 
 acceptor_listen(Pid) -> request(Pid, listen).
 
 acceptor_init(State) ->
-    {ok, {Protocol, Family, Address}, ModState} = (State#state.mod):acceptor_init(),
+    {ok, {Protocol, Family, Address}, ModState} = (State#acc_state.mod):acceptor_init(),
     receive
         {From, Ref, get_meta} ->
             reply(From, Ref, {Protocol, Family, Address})
@@ -354,43 +354,43 @@ acceptor_init(State) ->
     receive
         {From2, Ref2, listen} ->
             reply(From2, Ref2, ok),
-            acceptor_loop(State#state{
+            acceptor_loop(State#acc_state{
                 mod_state = ModState,
                 family = Family,
                 protocol = Protocol
             })
     end.
 
-acceptor_loop(#state{kernel = Kernel, family = Family, protocol = Protocol} = State) ->
+acceptor_loop(#acc_state{kernel = Kernel, family = Family, protocol = Protocol} = State) ->
     ?display({'CALL', [State]}),
     receive
         {From, Ref, close} ->
-            ?CALL(State, acceptor_terminate, []),
+            ?CALL(State#acc_state, acceptor_terminate, []),
             reply(From, Ref, ok);
         Msg ->
-            case ?CALL(State, acceptor_info, [Msg]) of
+            case ?CALL(State#acc_state, acceptor_info, [Msg]) of
                 {spawn_controller, Arg, NewModState} ->
                     CtrlPid = controller_spawn(Arg),
-                    ok = ?CALL(State, acceptor_controller_spawned, [Arg, CtrlPid]),
+                    ok = ?CALL(State#acc_state, acceptor_controller_spawned, [Arg, CtrlPid]),
                     Kernel ! {accept, self(), CtrlPid, Family, Protocol},
                     ?display(kernel_notified),
                     receive
                         {Kernel, controller, SupervisorPid} ->
                             ?display(kernel_happy),
                             controller_set_supervisor(CtrlPid, SupervisorPid),
-                            ok = ?CALL(State, acceptor_controller_approved, [Arg, CtrlPid]),
+                            ok = ?CALL(State#acc_state, acceptor_controller_approved, [Arg, CtrlPid]),
                             SupervisorPid ! {self(), controller};
                         {Kernel, unsupported_protocol} ->
                             ?display(kernel_sad),
                             exit(unsupported_protocol)
                     end,
-                    acceptor_loop(State#state{mod_state = NewModState});
+                    acceptor_loop(State#acc_state{mod_state = NewModState});
                 {ok, NewModState} ->
-                    acceptor_loop(State#state{mod_state = NewModState})
+                    acceptor_loop(State#acc_state{mod_state = NewModState})
         end
     end.
 
-acceptor_close(#state{acceptor = Pid}) ->
+acceptor_close(#acc_state{acceptor = Pid}) ->
     request(Pid, close).
 
 % Controller
