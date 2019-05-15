@@ -43,11 +43,18 @@
 
 -record(acc_state, {
     mod       :: module(),
-    mod_state :: term(),
+    mod_state :: state(),
     acceptor  :: pid(),
     kernel    :: pid(),
     family    :: inet:address_family(),
     protocol  :: inet:socket_protocol()
+}).
+
+-record(ctrl_state, {
+    mod          :: module(),
+    mod_state    :: state(),
+    tick_handler :: pid(),
+    supervisor   :: pid()
 }).
 
 %--- Macros --------------------------------------------------------------------
@@ -160,7 +167,8 @@ do_setup(Kernel, Node, Type, MyNode, LongOrShortNames, SetupTime) ->
                             death_row(Error)
                     end,
                     ID = {Address, Port},
-                    Controller = controller_spawn({ID, Socket}),
+                    Module = gen_udp_dist,
+                    Controller = controller_spawn({ID, Socket}, Module),
                     _ControllerPort = controller_set_supervisor(Controller, self()),
                     HSData0 = hs_data(Controller),
                     HSData = HSData0#hs_data{
@@ -370,7 +378,7 @@ acceptor_loop(#acc_state{kernel = Kernel, family = Family, protocol = Protocol} 
         Msg ->
             case ?CALL(State#acc_state, acceptor_info, [Msg]) of
                 {spawn_controller, Arg, NewModState} ->
-                    CtrlPid = controller_spawn(Arg),
+                    CtrlPid = controller_spawn(Arg, State#acc_state.mod),
                     ok = ?CALL(State#acc_state, acceptor_controller_spawned, [Arg, CtrlPid]),
                     Kernel ! {accept, self(), CtrlPid, Family, Protocol},
                     ?display(kernel_notified),
@@ -395,11 +403,11 @@ acceptor_close(#acc_state{acceptor = Pid}) ->
 
 % Controller
 
-controller_spawn({ID, Socket} = _Arg) ->
+controller_spawn({_ID, Socket} = Arg, Module) ->
     % TODO: Use behaviour here!
-    ?display({enter, [ID]}),
+    ?display({enter, [Arg, Module]}),
     Pid = spawn_opt(fun() ->
-        controller_init(ID)
+        controller_init(#ctrl_state{mod = Module, mod_state = Arg})
     end, [link, {priority, max}] ++ ?CONTROLLER_SPAWN_OPTS),
     gen_udp:controlling_process(Socket, Pid),
     request(Pid, {socket, Socket}),
@@ -412,7 +420,7 @@ controller_set_supervisor(Pid, SupervisorPid) ->
     unlink(Pid),
     ok.
 
-controller_init(ID) ->
+controller_init(#ctrl_state{mod_state = {ID, Socket}} = State) ->
     Socket = receive
         {From, Ref, {socket, S}} ->
             reply(From, Ref, ok),
@@ -423,25 +431,25 @@ controller_init(ID) ->
     TickHandler = spawn_opt(fun() ->
         controller_tick_loop(ID, Socket)
     end, [link, {priority, max}] ++ ?CONTROLLER_SPAWN_OPTS),
-    controller_setup_loop(ID, Socket, TickHandler, undefined).
+    controller_setup_loop(State#ctrl_state{tick_handler = TickHandler}).
 
-controller_setup_loop({IP, Port} = ID, Socket, TickHandler, Supervisor) ->
+controller_setup_loop(#ctrl_state{mod_state = {{IP, Port} = ID, Socket}} = State) ->
     receive
         {From, Ref, {supervisor, Pid}} ->
             link(Pid),
             reply(From, Ref, ok),
-            controller_setup_loop(ID, Socket, TickHandler, Pid);
+            controller_setup_loop(State#ctrl_state{supervisor = Pid});
         {From, Ref, tick_handler} ->
-            reply(From, Ref, TickHandler),
-            controller_setup_loop(ID, Socket, TickHandler, Supervisor);
+            reply(From, Ref, State#ctrl_state.tick_handler),
+            controller_setup_loop(State);
         {From, Ref, socket} ->
             reply(From, Ref, Socket),
-            controller_setup_loop(ID, Socket, TickHandler, Supervisor);
+            controller_setup_loop(State);
         {From, Ref, {send, Packet}} ->
             ok = gen_udp:send(Socket, IP, Port, Packet),
             % ?display({send, Socket, IP, Port, Packet}),
             reply(From, Ref, ok),
-            controller_setup_loop(ID, Socket, TickHandler, Supervisor);
+            controller_setup_loop(State);
         {From, Ref, {recv, Length, Timeout}} ->
             case gen_udp:recv(Socket, Length, Timeout) of
                 {ok, {IP, Port, Data}} ->
@@ -451,7 +459,7 @@ controller_setup_loop({IP, Port} = ID, Socket, TickHandler, Supervisor) ->
                     ?display({recv, {error, Other}}),
                     reply(From, Ref, {error, Other})
             end,
-            controller_setup_loop(ID, Socket, TickHandler, Supervisor);
+            controller_setup_loop(State);
         {From, Ref, {address, Node}} ->
             {node, _Name, Host} = dist_util:split_node(Node),
             reply(From, Ref, #net_address{
@@ -460,24 +468,24 @@ controller_setup_loop({IP, Port} = ID, Socket, TickHandler, Supervisor) ->
                 protocol = udp,
                 family = inet
             }),
-            controller_setup_loop(ID, Socket, TickHandler, Supervisor);
+            controller_setup_loop(State);
         {From, Ref, pre_nodeup} ->
             Res = inet:setopts(Socket, [{active, false}]),
             reply(From, Ref, Res),
-            controller_setup_loop(ID, Socket, TickHandler, Supervisor);
+            controller_setup_loop(State);
         {From, Ref, post_nodeup} ->
             Res = inet:setopts(Socket, [{active, false}]),
             reply(From, Ref, Res),
-            controller_setup_loop(ID, Socket, TickHandler, Supervisor);
+            controller_setup_loop(State);
         {From, Ref, getll} ->
             reply(From, Ref, {ok, self()}),
-            controller_setup_loop(ID, Socket, TickHandler, Supervisor);
+            controller_setup_loop(State);
         {From, Ref, {getopts, Opts}} ->
             reply(From, Ref, inet:getopts(Socket, Opts)),
-            controller_setup_loop(ID, Socket, TickHandler, Supervisor);
+            controller_setup_loop(State);
         {From, Ref, {handshake_complete, _Node, DHandle}} ->
             reply(From, Ref, ok),
-            InputHandler = controller_input_spawn(ID, DHandle, Supervisor),
+            InputHandler = controller_input_spawn(ID, DHandle, State#ctrl_state.supervisor),
             ok = erlang:dist_ctrl_input_handler(DHandle, InputHandler),
             ok = gen_udp:controlling_process(Socket, InputHandler),
             request(InputHandler, {socket, Socket}),
@@ -488,7 +496,7 @@ controller_setup_loop({IP, Port} = ID, Socket, TickHandler, Supervisor) ->
             controller_output_loop(ID, Socket, DHandle, Snd);
         _Other ->
             ?display({controller, {msg, _Other}}),
-            controller_setup_loop(ID, Socket, TickHandler, Supervisor)
+            controller_setup_loop(State)
     end.
 
 controller_input_spawn(ID, DHandle, Supervisor) ->
