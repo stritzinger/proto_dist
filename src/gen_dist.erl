@@ -424,8 +424,6 @@ controller_init(#ctrl_state{mod_state = {ID, Socket}} = State) ->
             reply(From, Ref, ok),
             S
     end,
-    {ok, _Port} = inet:port(Socket),
-    ?display({Socket, ID, _Port}),
     TickHandler = spawn_opt(fun() ->
         controller_tick_loop(ID, Socket)
     end, [link, {priority, max}] ++ ?CONTROLLER_SPAWN_OPTS),

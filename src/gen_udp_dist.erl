@@ -73,10 +73,8 @@ acceptor_terminate(Socket) ->
 
 controller_init({ID, Socket} = Arg) ->
     ?DEBUG([Arg], begin
-    _Port = inet:port(Socket),
-    ?display({acceptor, {reply_port, ID, _Port}}),
     TickFun = fun() -> send(Socket, ID, <<"tick\n">>) end,
-    {ok, TickFun, {ID, Socket}}
+    {ok, TickFun, Arg}
     end).
 
 % TODO: {handover, Socket}
