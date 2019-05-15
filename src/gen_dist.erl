@@ -418,16 +418,17 @@ controller_set_supervisor(Pid, SupervisorPid) ->
     unlink(Pid),
     ok.
 
-controller_init(#ctrl_state{mod_state = {ID, Socket}} = State) ->
+controller_init(#ctrl_state{mod = Module, mod_state = {_ID, Socket} = Arg} = State) ->
     Socket = receive
         {From, Ref, {socket, S}} ->
             reply(From, Ref, ok),
             S
     end,
+    {ok, TickFun, ModState} = Module:controller_init(Arg),
     TickHandler = spawn_opt(fun() ->
-        controller_tick_loop(ID, Socket)
+        controller_tick_loop(TickFun)
     end, [link, {priority, max}] ++ ?CONTROLLER_SPAWN_OPTS),
-    controller_setup_loop(State#ctrl_state{tick_handler = TickHandler}).
+    controller_setup_loop(State#ctrl_state{tick_handler = TickHandler, mod_state = ModState}).
 
 controller_setup_loop(#ctrl_state{mod_state = {{IP, Port} = ID, Socket}} = State) ->
     receive
@@ -590,15 +591,12 @@ controller_output_loop(ID, Socket, DHandle, Snd) ->
             death_row()
     end.
 
-controller_tick_loop({IP, Port} = ID, Socket) ->
+controller_tick_loop(TickFun) ->
     receive
-        tick ->
-            ?display({sending_tick, Socket, IP, Port, <<"tick\n">>}),
-            ok = gen_udp:send(Socket, IP, Port, <<"tick\n">>);
-        _ ->
-            ok
+        tick -> TickFun();
+        _    -> ok
     end,
-    controller_tick_loop(ID, Socket).
+    controller_tick_loop(TickFun).
 
 death_row() -> death_row(connection_closed).
 
