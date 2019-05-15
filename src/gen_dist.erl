@@ -407,7 +407,7 @@ controller_spawn(Arg, Module) ->
     % TODO: Use behaviour here!
     ?display({enter, [Arg, Module]}),
     Pid = spawn_opt(fun() ->
-        controller_init(#ctrl_state{mod = Module, mod_state = Arg})
+        controller_init(#ctrl_state{mod = Module}, Arg)
     end, [link, {priority, max}] ++ ?CONTROLLER_SPAWN_OPTS),
     Pid.
 
@@ -418,7 +418,7 @@ controller_set_supervisor(Pid, SupervisorPid) ->
     unlink(Pid),
     ok.
 
-controller_init(#ctrl_state{mod = Module, mod_state = Arg} = State) ->
+controller_init(#ctrl_state{mod = Module} = State, Arg) ->
     {ok, TickFun, ModState} = Module:controller_init(Arg),
     TickHandler = spawn_opt(fun() ->
         controller_tick_loop(TickFun)
