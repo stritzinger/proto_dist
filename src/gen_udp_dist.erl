@@ -10,6 +10,8 @@
 -export([acceptor_terminate/1]).
 -export([controller_init/1]).
 -export([controller_info/2]).
+-export([controller_send/2]).
+-export([controller_recv/3]).
 
 -define(time,
     erlang:convert_time_unit(erlang:monotonic_time()-erlang:system_info(start_time), native, microsecond)
@@ -97,9 +99,17 @@ controller_getstat() -> ok.
 
 controller_getopts() -> ok.
 
-controller_send() -> ok.
+controller_send(Packet, {ID, Socket} = State) ->
+    ?DEBUG([Packet, State], begin
+    send(Socket, ID, Packet),
+    {ok, State}
+    end).
 
-controller_recv() -> ok.
+controller_recv(Length, Timeout, {{IP, Port}, Socket} = State) ->
+    ?DEBUG([Length, Timeout, State], begin
+    {ok, {IP, Port, Data}} = gen_udp:recv(Socket, Length, Timeout),
+    {ok, Data, State}
+    end).
 
 %--- Internal ------------------------------------------------------------------
 

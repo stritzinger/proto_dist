@@ -421,6 +421,7 @@ controller_set_supervisor(Pid, SupervisorPid) ->
 controller_init(#ctrl_state{mod = Module} = State, Arg) ->
     {ok, TickFun, ModState} = Module:controller_init(Arg),
     TickHandler = spawn_opt(fun() ->
+        % TODO: Implement callback init and state for ticks?
         controller_tick_loop(TickFun)
     end, [link, {priority, max}] ++ ?CONTROLLER_SPAWN_OPTS),
     controller_setup_loop(State#ctrl_state{tick_handler = TickHandler, mod_state = ModState}).
@@ -438,20 +439,15 @@ controller_setup_loop(#ctrl_state{mod_state = {{IP, Port} = ID, Socket}} = State
             reply(From, Ref, Socket),
             controller_setup_loop(State);
         {From, Ref, {send, Packet}} ->
-            ok = gen_udp:send(Socket, IP, Port, Packet),
-            % ?display({send, Socket, IP, Port, Packet}),
+            % TODO: Error handling
+            {ok, NewModState} = ?CALL(State#ctrl_state, controller_send, [Packet]),
             reply(From, Ref, ok),
-            controller_setup_loop(State);
+            controller_setup_loop(State#ctrl_state{mod_state = NewModState});
         {From, Ref, {recv, Length, Timeout}} ->
-            case gen_udp:recv(Socket, Length, Timeout) of
-                {ok, {IP, Port, Data}} ->
-                    ?display({recv, IP, Port, Data}),
-                    reply(From, Ref, {ok, Data});
-                Other ->
-                    ?display({recv, {error, Other}}),
-                    reply(From, Ref, {error, Other})
-            end,
-            controller_setup_loop(State);
+            % TODO: Error handling
+            {ok, Data, NewModState} = ?CALL(State#ctrl_state, controller_recv, [Length, Timeout]),
+            reply(From, Ref, {ok, Data}),
+            controller_setup_loop(State#ctrl_state{mod_state = NewModState});
         {From, Ref, {address, Node}} ->
             {node, _Name, Host} = dist_util:split_node(Node),
             reply(From, Ref, #net_address{
