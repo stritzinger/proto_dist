@@ -50,8 +50,10 @@ acceptor_info(_Other, Socket) ->
 
 acceptor_controller_spawned({_ID, CtrlSocket} = _State, Pid, ListenSocket) ->
     ?DEBUG([_State, Pid, ListenSocket], begin
-    gen_udp:controlling_process(CtrlSocket, Pid),
-    Pid ! {handover, CtrlSocket},
+    ok = gen_udp:controlling_process(CtrlSocket, Pid),
+    Ref = make_ref(),
+    Pid ! {self(), Ref, {socket, CtrlSocket}},
+    receive {Ref, ok} -> ok end,
     ok
     end).
 

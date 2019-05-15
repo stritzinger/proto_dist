@@ -167,7 +167,7 @@ do_setup(Kernel, Node, Type, MyNode, LongOrShortNames, SetupTime) ->
                             death_row(Error)
                     end,
                     ID = {Address, Port},
-                    Module = gen_udp_dist,
+                    Module = gen_udp_dist, % FIXME: Get real module
                     Controller = controller_spawn({ID, Socket}, Module),
                     _ControllerPort = controller_set_supervisor(Controller, self()),
                     HSData0 = hs_data(Controller),
@@ -403,14 +403,12 @@ acceptor_close(#acc_state{acceptor = Pid}) ->
 
 % Controller
 
-controller_spawn({_ID, Socket} = Arg, Module) ->
+controller_spawn(Arg, Module) ->
     % TODO: Use behaviour here!
     ?display({enter, [Arg, Module]}),
     Pid = spawn_opt(fun() ->
         controller_init(#ctrl_state{mod = Module, mod_state = Arg})
     end, [link, {priority, max}] ++ ?CONTROLLER_SPAWN_OPTS),
-    gen_udp:controlling_process(Socket, Pid),
-    request(Pid, {socket, Socket}),
     Pid.
 
 controller_set_supervisor(Pid, SupervisorPid) ->
