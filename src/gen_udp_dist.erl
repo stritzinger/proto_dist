@@ -51,9 +51,10 @@ acceptor_info(_Other, Socket) ->
 acceptor_controller_spawned({_ID, CtrlSocket} = _State, Pid, ListenSocket) ->
     ?DEBUG([_State, Pid, ListenSocket], begin
     ok = gen_udp:controlling_process(CtrlSocket, Pid),
-    Ref = make_ref(),
-    Pid ! {self(), Ref, {socket, CtrlSocket}},
-    receive {Ref, ok} -> ok end,
+
+    Pid ! {self(), {socket, CtrlSocket}},
+    receive {Pid, ok} -> ok end,
+
     ok
     end).
 
@@ -73,6 +74,12 @@ acceptor_terminate(Socket) ->
 
 controller_init({ID, Socket} = Arg) ->
     ?DEBUG([Arg], begin
+
+    receive
+        {Acceptor, {socket, Socket}} ->
+            Acceptor ! {self(), ok}
+    end,
+
     TickFun = fun() -> send(Socket, ID, <<"tick\n">>) end,
     {ok, TickFun, Arg}
     end).

@@ -418,12 +418,7 @@ controller_set_supervisor(Pid, SupervisorPid) ->
     unlink(Pid),
     ok.
 
-controller_init(#ctrl_state{mod = Module, mod_state = {_ID, Socket} = Arg} = State) ->
-    Socket = receive
-        {From, Ref, {socket, S}} ->
-            reply(From, Ref, ok),
-            S
-    end,
+controller_init(#ctrl_state{mod = Module, mod_state = Arg} = State) ->
     {ok, TickFun, ModState} = Module:controller_init(Arg),
     TickHandler = spawn_opt(fun() ->
         controller_tick_loop(TickFun)
