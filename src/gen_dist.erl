@@ -430,7 +430,7 @@ controller_init(#ctrl_state{mod = Module} = State, Arg) ->
     end, [link, {priority, max}] ++ ?CONTROLLER_SPAWN_OPTS),
     controller_setup_loop(State#ctrl_state{tick_handler = TickHandler, mod_state = ModState}).
 
-controller_setup_loop(#ctrl_state{mod_state = {{IP, Port} = ID, Socket}} = State) ->
+controller_setup_loop(#ctrl_state{mod_state = {ID, Socket}} = State) ->
     receive
         {From, Ref, {supervisor, Pid}} ->
             link(Pid),
