@@ -87,7 +87,6 @@
 
 %--- Callbacks -----------------------------------------------------------------
 
-
 -spec listen(atom()) -> {ok, {term(), #net_address{}, 1..3}} | {error, term()}.
 listen(Name) ->
     ?display({enter, [Name]}),
@@ -252,7 +251,6 @@ split_node(Node, LongOrShortNames) ->
 
 hs_data(DistController) ->
     TickHandler = request(DistController, tick_handler),
-    Socket = request(DistController, socket),
     #hs_data{
         f_send = fun(Controller, Packet) ->
             ?display({f_send, Controller, Packet}),
@@ -301,16 +299,15 @@ hs_data(DistController) ->
             ?display({mf_getopts, Controller, Opts}),
             request(Controller, {getopts, Opts})
         end,
-        mf_getstat = fun(_Controller) ->
-            ?display({mf_getstat, _Controller, Socket}),
-            Res = case inet:getstat(Socket, [recv_cnt, send_cnt, send_pend]) of
-                {ok, Stat} ->
-                    split_stat(Stat, 0, 0, 0);
-                Error ->
-                    Error
-            end,
-            ?display({mf_getstat, Res}),
-            Res
+        mf_getstat = fun(Controller) ->
+            % ?display({mf_getstat, Controller}),
+            % Stats are used by the kernel to determine if ticks should be sent.
+            % If stats does not change (i.e. no data has flowed on the wire),
+            % the kernel issues a tick command to the tick handler. Because
+            % we're always returning 0's here, we fool the kernel to always send
+            % ticks. To never send ticks, we would need to increment these
+            % values every time stats are asked for.
+            {ok, 0, 0, 0}
         end,
         mf_tick = fun(_Controller) ->
             ?display({mf_tick, _Controller, TickHandler}),
@@ -600,12 +597,3 @@ death_row() -> death_row(connection_closed).
 death_row(normal) -> death_row();
 death_row(Reason) ->
     receive after 5000 -> exit(Reason) end.
-
-split_stat([{recv_cnt, R}|Stat], _, W, P) ->
-    split_stat(Stat, R, W, P);
-split_stat([{send_cnt, W}|Stat], R, _, P) ->
-    split_stat(Stat, R, W, P);
-split_stat([{send_pend, P}|Stat], R, W, _) ->
-    split_stat(Stat, R, W, P);
-split_stat([], R, W, P) ->
-    {ok, R, W, P}.
