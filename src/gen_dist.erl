@@ -330,9 +330,10 @@ request(Pid, Req, Timeout) when is_pid(Pid) ->
                 exit({dist_process_exit, Reason})
         after
             Timeout ->
-                Error = {dist_process_request_timeout, Pid, Req},
+                Stack = try error(foo) catch error:foo:ST -> ST end,
+                Error = {dist_process_request_timeout, Pid, Req, Stack},
                 ?display(Error),
-                exit(Error)
+                error(Error)
         end
     after
         erlang:demonitor(Ref, [flush])
