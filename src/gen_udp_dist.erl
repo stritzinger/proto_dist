@@ -5,7 +5,6 @@
 % Callbacks
 -export([acceptor_init/0]).
 -export([acceptor_info/2]).
--export([acceptor_controller_spawned/3]).
 -export([acceptor_controller_approved/3]).
 -export([acceptor_terminate/1]).
 -export([controller_init/1]).
@@ -42,26 +41,16 @@ acceptor_info({udp, Socket, SrcAddress, SrcPort, <<"hello\n">>} = Msg, Socket) -
     ?DEBUG([Msg, Socket], begin
     ?display({acceptor, {got_hello, SrcAddress, SrcPort}}),
     ID = {SrcAddress, SrcPort},
-    {ok, CtrlSocket} = gen_udp:open(0, [binary, {active, false}]),
-    {spawn_controller, {ID, CtrlSocket}, Socket}
+    {spawn_controller, ID, Socket}
     end);
 acceptor_info(_Other, Socket) ->
     ?display({unknown_msg, _Other}),
     {ok, Socket}.
 
-acceptor_controller_spawned({_ID, CtrlSocket} = _State, Pid, ListenSocket) ->
-    ?DEBUG([_State, Pid, ListenSocket], begin
-    ok = gen_udp:controlling_process(CtrlSocket, Pid),
-
-    Pid ! {self(), {socket, CtrlSocket}},
-    receive {Pid, ok} -> ok end,
-
-    ok
-    end).
-
-acceptor_controller_approved({ID, CtrlSocket} = _State, _Pid, ListenSocket) ->
-    ?DEBUG([_State, _Pid, ListenSocket], begin
-    {ok, {_IP, Port}} = inet:sockname(CtrlSocket),
+acceptor_controller_approved(ID, Pid, ListenSocket) ->
+    ?DEBUG([ID, Pid, ListenSocket], begin
+    Pid ! {self(), get_port},
+    Port = receive {Pid, P} -> P end,
     send(ListenSocket, ID, <<Port:16>>),
     ok
     end).
@@ -73,16 +62,16 @@ acceptor_terminate(Socket) ->
 
 % Controller
 
-controller_init({ID, Socket} = Arg) ->
-    ?DEBUG([Arg], begin
-
+controller_init(ID) ->
+    ?DEBUG([ID], begin
+    {ok, Socket} = gen_udp:open(0, [binary, {active, false}]),
     receive
-        {Acceptor, {socket, Socket}} ->
-            Acceptor ! {self(), ok}
+        {Acceptor, get_port} ->
+            {ok, {_IP, Port}} = inet:sockname(Socket),
+            Acceptor ! {self(), Port}
     end,
-
     TickFun = fun() -> send(Socket, ID, <<"tick\n">>) end,
-    {ok, TickFun, Arg}
+    {ok, TickFun, {ID, Socket}}
     end).
 
 controller_send(Packet, {ID, Socket} = State) ->

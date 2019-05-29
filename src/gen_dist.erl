@@ -33,8 +33,6 @@
 
 -callback acceptor_info(term(), state()) -> state().
 
--callback acceptor_controller_spawned(term(), pid(), state()) -> state().
-
 -callback acceptor_controller_approved(term(), pid(), state()) -> state().
 
 -callback acceptor_terminate(state()) -> no_return().
@@ -383,7 +381,6 @@ acceptor_loop(#acc_state{kernel = Kernel, family = Family, protocol = Protocol} 
             case ?CALL(State#acc_state, acceptor_info, [Msg]) of
                 {spawn_controller, Arg, NewModState} ->
                     CtrlPid = controller_spawn(Arg, State#acc_state.mod),
-                    ok = ?CALL(State#acc_state, acceptor_controller_spawned, [Arg, CtrlPid]),
                     Kernel ! {accept, self(), CtrlPid, Family, Protocol},
                     ?display(kernel_notified),
                     receive
@@ -423,19 +420,24 @@ controller_set_supervisor(Pid, SupervisorPid) ->
     ok.
 
 controller_init(#ctrl_state{mod = Module} = State, Arg) ->
+    receive
+        {From, Ref, {supervisor, Supervisor}} ->
+            link(Supervisor),
+            reply(From, Ref, ok)
+    end,
     {ok, TickFun, ModState} = Module:controller_init(Arg),
     TickHandler = spawn_opt(fun() ->
         % TODO: Implement callback init and state for ticks?
         controller_tick_loop(TickFun)
     end, [link, {priority, max}] ++ ?CONTROLLER_SPAWN_OPTS),
-    controller_setup_loop(State#ctrl_state{tick_handler = TickHandler, mod_state = ModState}).
+    controller_setup_loop(State#ctrl_state{
+        supervisor = Supervisor,
+        tick_handler = TickHandler,
+        mod_state = ModState
+    }).
 
 controller_setup_loop(#ctrl_state{mod_state = {ID, Socket}} = State) ->
     receive
-        {From, Ref, {supervisor, Pid}} ->
-            link(Pid),
-            reply(From, Ref, ok),
-            controller_setup_loop(State#ctrl_state{supervisor = Pid});
         {From, Ref, tick_handler} ->
             reply(From, Ref, State#ctrl_state.tick_handler),
             controller_setup_loop(State);
