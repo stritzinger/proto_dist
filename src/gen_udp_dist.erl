@@ -9,7 +9,6 @@
 -export([acceptor_controller_approved/3]).
 -export([acceptor_terminate/1]).
 -export([controller_init/1]).
--export([controller_info/2]).
 -export([controller_send/2]).
 -export([controller_recv/3]).
 
@@ -85,19 +84,6 @@ controller_init({ID, Socket} = Arg) ->
     TickFun = fun() -> send(Socket, ID, <<"tick\n">>) end,
     {ok, TickFun, Arg}
     end).
-
-% TODO: {handover, Socket}
-
-controller_info({handover, Socket} = Msg, {_ID, Socket} = State) ->
-    ?DEBUG([Msg, State], begin
-    {ok, State}
-    end).
-
-controller_port() -> ok.
-
-controller_getstat() -> ok.
-
-controller_getopts() -> ok.
 
 controller_send(Packet, {ID, Socket} = State) ->
     ?DEBUG([Packet, State], begin
