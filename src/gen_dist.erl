@@ -310,7 +310,7 @@ hs_data(DistController) ->
             {ok, 0, 0, 0}
         end,
         mf_tick = fun(_Controller) ->
-            ?display({mf_tick, _Controller, TickHandler}),
+            % ?display({mf_tick, _Controller, TickHandler}),
             TickHandler ! tick
         end,
         add_flags = ?DFLAG_SEND_SENDER,
