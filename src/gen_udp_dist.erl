@@ -100,6 +100,5 @@ controller_recv(Length, Timeout, {{IP, Port}, Socket} = State) ->
 %--- Internal ------------------------------------------------------------------
 
 send(Socket, {IP, Port}, Data) ->
-    ?DEBUG([Socket, {IP, Port}, Data], begin
-    ok = gen_udp:send(Socket, IP, Port, Data)
-    end).
+    ?display({send, Socket, {IP, Port}, Data}),
+    ok = gen_udp:send(Socket, IP, Port, Data).
