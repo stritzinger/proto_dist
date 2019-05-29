@@ -31,6 +31,12 @@
     state()}
 }.
 
+-callback acceptor_info(term(), state()) -> state().
+
+-callback acceptor_controller_spawned(term(), pid(), state()) -> state().
+
+-callback acceptor_controller_approved(term(), pid(), state()) -> state().
+
 -callback acceptor_terminate(state()) -> no_return().
 
 -callback valid_hostname(inet:hostname()) -> boolean().
