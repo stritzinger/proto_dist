@@ -297,7 +297,7 @@ hs_data(DistController) ->
             ?display({mf_getopts, Controller, Opts}),
             request(Controller, {getopts, Opts})
         end,
-        mf_getstat = fun(Controller) ->
+        mf_getstat = fun(_Controller) ->
             % ?display({mf_getstat, Controller}),
             % Stats are used by the kernel to determine if ticks should be sent.
             % If stats does not change (i.e. no data has flowed on the wire),
@@ -441,9 +441,6 @@ controller_setup_loop(#ctrl_state{mod_state = {ID, Socket}} = State) ->
         {From, Ref, tick_handler} ->
             reply(From, Ref, State#ctrl_state.tick_handler),
             controller_setup_loop(State);
-        {From, Ref, socket} ->
-            reply(From, Ref, Socket),
-            controller_setup_loop(State);
         {From, Ref, {send, Packet}} ->
             % TODO: Error handling
             {ok, NewModState} = ?CALL(State#ctrl_state, controller_send, [Packet]),
@@ -479,13 +476,12 @@ controller_setup_loop(#ctrl_state{mod_state = {ID, Socket}} = State) ->
             controller_setup_loop(State);
         {From, Ref, {handshake_complete, _Node, DHandle}} ->
             reply(From, Ref, ok),
-            InputHandler = controller_input_spawn(ID, DHandle, State#ctrl_state.supervisor),
+            InputHandler = controller_input_spawn(State, DHandle, State#ctrl_state.supervisor),
             ok = erlang:dist_ctrl_input_handler(DHandle, InputHandler),
-            ok = gen_udp:controlling_process(Socket, InputHandler),
-            request(InputHandler, {socket, Socket}),
+            {ok, NewModState} = ?CALL(State#ctrl_state, controller_done, [InputHandler]),
+            request(InputHandler, {activate, NewModState}),
             process_flag(priority, normal),
             erlang:dist_ctrl_get_data_notification(DHandle),
-            ?display({output_init, ID, Socket}),
             Snd = packet_sender:new(),
             controller_output_loop(ID, Socket, DHandle, Snd);
         _Other ->
@@ -493,42 +489,34 @@ controller_setup_loop(#ctrl_state{mod_state = {ID, Socket}} = State) ->
             controller_setup_loop(State)
     end.
 
-controller_input_spawn(ID, DHandle, Supervisor) ->
+controller_input_spawn(State, DHandle, Supervisor) ->
     spawn_opt(fun() ->
-        controller_input_init(ID, DHandle, Supervisor)
+        controller_input_init(State, DHandle, Supervisor)
     end, [link] ++ ?CONTROLLER_SPAWN_OPTS).
 
-controller_input_init(ID, DHandle, Supervisor) ->
+controller_input_init(#ctrl_state{mod = Module} = State, DHandle, Supervisor) ->
     link(Supervisor),
-    % Ensure we don't put data before registered as input handler:
-    receive {From, Ref, {socket, Socket}} -> reply(From, Ref, ok) end,
-    Rcv = packet_receiver:new(),
-    ?display({input_init, ID, Socket, Rcv}),
-    ok = inet:setopts(Socket, [{active, true}]),
-    controller_input_loop(ID, Socket, DHandle, Rcv).
+    CtrlModState = receive
+        % Ensure we don't start before registered as input handler:
+        {From, Ref, {activate, S}} ->
+            reply(From, Ref, ok),
+            S
+    end,
+    {ok, InputModState} = Module:input_init(CtrlModState),
+    controller_input_loop(State#ctrl_state{mod_state = InputModState}, DHandle).
 
-controller_input_loop(ID, Socket, DHandle, Rcv) ->
+controller_input_loop(State, DHandle) ->
     try
         receive
-            {udp, Socket, _SrcAddress, _SrcPort, <<"tick\n">>} ->
-                % ?display({got_tick, _SrcAddress, _SrcPort, <<"tick\n">>}),
-                controller_input_loop(ID, Socket, DHandle, Rcv);
-            {udp, Socket, _SrcAddress, _SrcPort, Data} ->
-                % ?display({udp, Socket, _SrcAddress, _SrcPort, Data}),
-                NewRcv = case packet_receiver:collect(Data, Rcv) of
-                    {[], R} ->
-                        erlang:dist_ctrl_put_data(DHandle, <<>>),
-                        R;
-                    {Messages, R} ->
-                        lists:foreach(fun({_, M}) ->
-                            erlang:dist_ctrl_put_data(DHandle, M)
-                        end, Messages),
-                        R
+            Msg ->
+                NewModState = case ?CALL(State#ctrl_state, input_info, [Msg]) of
+                    {reply, Data, S} ->
+                        erlang:dist_ctrl_put_data(DHandle, Data),
+                        S;
+                    {noreply, S} ->
+                        S
                 end,
-                controller_input_loop(ID, Socket, DHandle, NewRcv);
-            _Other ->
-                ?display({msg, _Other}),
-                controller_input_loop(ID, Socket, DHandle, Rcv)
+                controller_input_loop(State#ctrl_state{mod_state = NewModState}, DHandle)
         end
     catch
         _C:_R:_ST ->

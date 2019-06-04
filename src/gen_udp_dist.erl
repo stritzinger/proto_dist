@@ -10,6 +10,9 @@
 -export([controller_init/1]).
 -export([controller_send/2]).
 -export([controller_recv/3]).
+-export([controller_done/2]).
+-export([input_init/1]).
+-export([input_info/2]).
 
 -define(time,
     erlang:convert_time_unit(erlang:monotonic_time()-erlang:system_info(start_time), native, microsecond)
@@ -85,6 +88,32 @@ controller_recv(Length, Timeout, {{IP, Port}, Socket} = State) ->
     {ok, {IP, Port, Data}} = gen_udp:recv(Socket, Length, Timeout),
     {ok, Data, State}
     end).
+
+controller_done(InputHandler, {_ID, Socket} = State) ->
+    ok = gen_udp:controlling_process(Socket, InputHandler),
+    {ok, State}.
+
+% Output
+
+% Input
+
+input_init({ID, Socket}) ->
+    Rcv = packet_receiver:new(),
+    ?display({input_init, ID, Socket, Rcv}),
+    ok = inet:setopts(Socket, [{active, true}]),
+    {ok, {ID, Socket, Rcv}}.
+
+input_info({udp, Socket, _SrcAddress, _SrcPort, <<"tick\n">>}, {_, Socket, _} = State) ->
+    ?display({got_tick, _SrcAddress, _SrcPort, <<"tick\n">>}),
+    {noreply, State};
+input_info({udp, Socket, _SrcAddress, _SrcPort, Data}, {ID, Socket, Rcv}) ->
+    case packet_receiver:collect(Data, Rcv) of
+        {[], R} ->
+            {noreply, {ID, Socket, R}};
+        {Messages, R} ->
+            AllData = lists:map(fun({_, D}) -> D end, Messages),
+            {reply, AllData, {ID, Socket, R}}
+    end.
 
 %--- Internal ------------------------------------------------------------------
 
