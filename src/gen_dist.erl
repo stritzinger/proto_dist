@@ -479,10 +479,7 @@ controller_setup_loop(#ctrl_state{mod_state = {ID, Socket}} = State) ->
             ok = erlang:dist_ctrl_input_handler(DHandle, InputHandler),
             {ok, NewModState} = ?CALL(State#ctrl_state, controller_done, [InputHandler]),
             request(InputHandler, {activate, NewModState}),
-            process_flag(priority, normal),
-            erlang:dist_ctrl_get_data_notification(DHandle),
-            Snd = packet_sender:new(),
-            controller_output_loop(ID, Socket, DHandle, Snd);
+            controller_output_init(State, DHandle);
         _Other ->
             ?display({controller, {msg, _Other}}),
             controller_setup_loop(State)
@@ -523,56 +520,36 @@ controller_input_loop(State, DHandle) ->
             death_row()
     end.
 
-controller_gather_data(ID, Socket, DHandle, Snd) ->
-    case erlang:dist_ctrl_get_data(DHandle) of
-        none ->
-            erlang:dist_ctrl_get_data_notification(DHandle),
-            Snd;
-        Data ->
-            NewSnd = controller_add_data(Data, Snd),
-            NewNewSnd = controller_send_once(ID, Socket, NewSnd),
-            controller_gather_data(ID, Socket, DHandle, NewNewSnd)
-    end.
+controller_output_init(#ctrl_state{mod = Module, mod_state = ModState} = State, DHandle) ->
+    process_flag(priority, normal),
+    {ok, OutputModState} = Module:output_init(ModState),
+    erlang:dist_ctrl_get_data_notification(DHandle),
+    controller_output_loop(State#ctrl_state{mod_state = OutputModState}, DHandle).
 
-controller_add_data(Data, Snd) ->
-    Ch = packet_channel:channel(Data),
-    packet_sender:schedule(Ch, Data, Snd).
-
-controller_send_once({Address, Port}, Socket, Snd) ->
-    case packet_sender:next(Snd) of
-        {empty, NewSnd} ->
-            NewSnd;
-        {Data, NewSnd} ->
-            % ?display({send, Socket, Address, Port, Data}),
-            ok = gen_udp:send(Socket, Address, Port, Data),
-            NewSnd
-    end.
-
-controller_send_all({Address, Port} = ID, Socket, Snd) ->
-    case packet_sender:next(Snd) of
-        {empty, NewSnd} ->
-            NewSnd;
-        {Data, NewSnd} ->
-            ?display({send, Socket, Address, Port, Data}),
-            ok = gen_udp:send(Socket, Address, Port, Data),
-            controller_send_all(ID, Socket, NewSnd)
-    end.
-
-controller_output_loop(ID, Socket, DHandle, Snd) ->
+controller_output_loop(State, DHandle) ->
     try
         receive
             dist_data ->
-                NewSnd = controller_gather_data(ID, Socket, DHandle, Snd),
-                NewNewSnd = controller_send_all(ID, Socket, NewSnd),
-                controller_output_loop(ID, Socket, DHandle, NewNewSnd);
+                NewState = controller_output_gather(State, DHandle),
+                controller_output_loop(NewState, DHandle);
             _Other ->
                 ?display({msg, _Other}),
-                controller_output_loop(ID, Socket, DHandle, Snd)
+                controller_output_loop(State, DHandle)
         end
     catch
         _C:_R:_ST ->
             ?display({error, _C, _R, _ST}),
             death_row()
+    end.
+
+controller_output_gather(State, DHandle) ->
+    case erlang:dist_ctrl_get_data(DHandle) of
+        none ->
+            erlang:dist_ctrl_get_data_notification(DHandle),
+            State;
+        Data ->
+            {ok, NewModState} = ?CALL(State#ctrl_state, output_send, [Data]),
+            controller_output_gather(State#ctrl_state{mod_state = NewModState}, DHandle)
     end.
 
 controller_tick_init(#ctrl_state{mod = Module, mod_state = CtrlModState} = State) ->

@@ -11,6 +11,8 @@
 -export([controller_send/2]).
 -export([controller_recv/3]).
 -export([controller_done/2]).
+-export([output_init/1]).
+-export([output_send/2]).
 -export([input_init/1]).
 -export([input_info/2]).
 -export([tick_init/1]).
@@ -97,6 +99,18 @@ controller_done(InputHandler, {_ID, Socket} = State) ->
 
 % Output
 
+output_init({ID, Socket}) ->
+    ?display({output_init, {ID, Socket}}),
+    Snd = packet_sender:new(),
+    {ok, {ID, Socket, Snd}}.
+
+output_send(Data, {ID, Socket, Snd0}) ->
+    ?display({output_send, byte_size(Data)}),
+    Ch = packet_channel:channel(Data),
+    Snd1 = packet_sender:schedule(Ch, Data, Snd0),
+    Snd2 = send_all(Socket, ID, Snd1),
+    {ok, {ID, Socket, Snd2}}.
+
 % Input
 
 input_init({ID, Socket}) ->
@@ -127,5 +141,16 @@ tick_trigger({ID, Socket}) ->
 %--- Internal ------------------------------------------------------------------
 
 send(Socket, {IP, Port}, Data) ->
-    ?display({send, Socket, {IP, Port}, Data}),
+    ?display({send, Socket, {IP, Port}, byte_size(iolist_to_binary(Data))}),
     ok = gen_udp:send(Socket, IP, Port, Data).
+
+send_all(Socket, ID, Snd) ->
+    case packet_sender:next(Snd) of
+        {empty, S} ->
+            ?display({send_all, empty, 0}),
+            S;
+        {ToSend, S} ->
+            ?display({send_all, byte_size(ToSend)}),
+            send(Socket, ID, ToSend),
+            send_all(Socket, ID, S)
+    end.
