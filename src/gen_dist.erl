@@ -425,10 +425,9 @@ controller_init(#ctrl_state{mod = Module} = State, Arg) ->
             link(Supervisor),
             reply(From, Ref, ok)
     end,
-    {ok, TickFun, ModState} = Module:controller_init(Arg),
+    {ok, ModState} = Module:controller_init(Arg),
     TickHandler = spawn_opt(fun() ->
-        % TODO: Implement callback init and state for ticks?
-        controller_tick_loop(TickFun)
+        controller_tick_init(State#ctrl_state{mod_state = ModState})
     end, [link, {priority, max}] ++ ?CONTROLLER_SPAWN_OPTS),
     controller_setup_loop(State#ctrl_state{
         supervisor = Supervisor,
@@ -576,12 +575,19 @@ controller_output_loop(ID, Socket, DHandle, Snd) ->
             death_row()
     end.
 
-controller_tick_loop(TickFun) ->
-    receive
-        tick -> TickFun();
-        _    -> ok
+controller_tick_init(#ctrl_state{mod = Module, mod_state = CtrlModState} = State) ->
+    {ok, TickModState} = Module:tick_init(CtrlModState),
+    controller_tick_loop(State#ctrl_state{mod_state = TickModState}).
+
+controller_tick_loop(State) ->
+    NewTickModState = receive
+        tick ->
+            {ok, S} = ?CALL(State#ctrl_state, tick_trigger, []),
+            S;
+        _ ->
+            State#ctrl_state.mod_state
     end,
-    controller_tick_loop(TickFun).
+    controller_tick_loop(State#ctrl_state{mod_state = NewTickModState}).
 
 death_row() -> death_row(connection_closed).
 

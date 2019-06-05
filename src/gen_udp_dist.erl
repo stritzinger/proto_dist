@@ -13,6 +13,8 @@
 -export([controller_done/2]).
 -export([input_init/1]).
 -export([input_info/2]).
+-export([tick_init/1]).
+-export([tick_trigger/1]).
 
 -define(time,
     erlang:convert_time_unit(erlang:monotonic_time()-erlang:system_info(start_time), native, microsecond)
@@ -73,8 +75,7 @@ controller_init(ID) ->
             {ok, {_IP, Port}} = inet:sockname(Socket),
             Acceptor ! {self(), Port}
     end,
-    TickFun = fun() -> send(Socket, ID, <<"tick\n">>) end,
-    {ok, TickFun, {ID, Socket}}
+    {ok, {ID, Socket}}
     end).
 
 controller_send(Packet, {ID, Socket} = State) ->
@@ -90,6 +91,7 @@ controller_recv(Length, Timeout, {{IP, Port}, Socket} = State) ->
     end).
 
 controller_done(InputHandler, {_ID, Socket} = State) ->
+    ?display({done, InputHandler, State}),
     ok = gen_udp:controlling_process(Socket, InputHandler),
     {ok, State}.
 
@@ -114,6 +116,13 @@ input_info({udp, Socket, _SrcAddress, _SrcPort, Data}, {ID, Socket, Rcv}) ->
             AllData = lists:map(fun({_, D}) -> D end, Messages),
             {reply, AllData, {ID, Socket, R}}
     end.
+
+tick_init({ID, Socket}) ->
+    {ok, {ID, Socket}}.
+
+tick_trigger({ID, Socket}) ->
+    send(Socket, ID, <<"tick\n">>),
+    {ok, {ID, Socket}}.
 
 %--- Internal ------------------------------------------------------------------
 
