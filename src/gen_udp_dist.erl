@@ -22,51 +22,35 @@
 -define(time,
     erlang:convert_time_unit(erlang:monotonic_time()-erlang:system_info(start_time), native, microsecond)
 ).
-% -define(display(Term), ok).
--define(display(Term), erlang:display({?time, self(), ?MODULE, ?FUNCTION_NAME, Term})).
-
--define(DEBUG(Args, Body),
-    ?display({'CALL', Args}),
-    VVVVVValue = Body,
-    ?display({'RETURN', VVVVVValue}),
-    VVVVVValue
-).
+-define(display(Term), ok).
+% -define(display(Term), erlang:display({?time, self(), ?MODULE, ?FUNCTION_NAME, Term})).
 
 %--- Callbacks -----------------------------------------------------------------
 
 % Acceptor
 
 acceptor_init() ->
-    ?DEBUG([], begin
     {ok, ListenSocket} = gen_udp:open(0, [binary, {active, true}]),
     {ok, _Port} = inet:port(ListenSocket),
     ?display({socket, ListenSocket, _Port}),
     {ok, Address} = inet:sockname(ListenSocket),
-    {ok, {udp, inet, Address}, ListenSocket}
-    end).
+    {ok, {udp, inet, Address}, ListenSocket}.
 
-acceptor_info({udp, Socket, SrcAddress, SrcPort, <<"hello\n">>} = Msg, Socket) ->
-    ?DEBUG([Msg, Socket], begin
+acceptor_info({udp, Socket, SrcAddress, SrcPort, <<"hello\n">>}, Socket) ->
     ?display({acceptor, {got_hello, SrcAddress, SrcPort}}),
     ID = {SrcAddress, SrcPort},
-    {spawn_controller, ID, Socket}
-    end);
+    {spawn_controller, ID, Socket};
 acceptor_info(_Other, Socket) ->
     ?display({unknown_msg, _Other}),
     {ok, Socket}.
 
 acceptor_controller_approved(ID, Pid, ListenSocket) ->
-    ?DEBUG([ID, Pid, ListenSocket], begin
     Pid ! {self(), get_port},
     Port = receive {Pid, P} -> P end,
     send(ListenSocket, ID, <<Port:16>>),
-    ok
-    end).
+    ok.
 
-acceptor_terminate(Socket) ->
-    ?DEBUG([Socket], begin
-    ok = gen_udp:close(Socket)
-    end).
+acceptor_terminate(Socket) -> ok = gen_udp:close(Socket).
 
 % Outgoing
 
@@ -86,27 +70,21 @@ setup(Name, Host) ->
 % Controller
 
 controller_init(ID) ->
-    ?DEBUG([ID], begin
     {ok, Socket} = gen_udp:open(0, [binary, {active, false}]),
     receive
         {Acceptor, get_port} ->
             {ok, {_IP, Port}} = inet:sockname(Socket),
             Acceptor ! {self(), Port}
     end,
-    {ok, {ID, Socket}}
-    end).
+    {ok, {ID, Socket}}.
 
 controller_send(Packet, {ID, Socket} = State) ->
-    ?DEBUG([Packet, State], begin
     send(Socket, ID, Packet),
-    {ok, State}
-    end).
+    {ok, State}.
 
 controller_recv(Length, Timeout, {{IP, Port}, Socket} = State) ->
-    ?DEBUG([Length, Timeout, State], begin
     {ok, {IP, Port, Data}} = gen_udp:recv(Socket, Length, Timeout),
-    {ok, Data, State}
-    end).
+    {ok, Data, State}.
 
 controller_done(InputHandler, {_ID, Socket} = State) ->
     ?display({done, InputHandler, State}),
@@ -165,8 +143,8 @@ ip(Host) ->
 port(Name, IP) ->
     Epmd = net_kernel:epmd_module(),
     case Epmd:port_please(Name, IP) of
-        {port, TcpPort, Version} ->
-            ?display({port_please, Name, TcpPort, Version}),
+        {port, TcpPort, 5} ->
+            ?display({port_please, Name, TcpPort}),
             TcpPort;
         Error ->
             error({epmd_error, Error})
