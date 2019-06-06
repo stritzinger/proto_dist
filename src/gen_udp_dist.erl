@@ -7,6 +7,7 @@
 -export([acceptor_info/2]).
 -export([acceptor_controller_approved/3]).
 -export([acceptor_terminate/1]).
+-export([setup/2]).
 -export([controller_init/1]).
 -export([controller_send/2]).
 -export([controller_recv/3]).
@@ -66,6 +67,21 @@ acceptor_terminate(Socket) ->
     ?DEBUG([Socket], begin
     ok = gen_udp:close(Socket)
     end).
+
+% Outgoing
+
+setup(Name, Host) ->
+    Port = port(Name, ip(Host)),
+    % dist_util:reset_timer(Timer),
+    {ok, Socket} = gen_udp:open(0, [binary, {active, false}]),
+    ok = gen_udp:send(Socket, Host, Port, <<"hello\n">>),
+    case gen_udp:recv(Socket, 2, 5000) of
+        {ok, {SrcAddress, Port, <<RemotePort:16>>}} ->
+            {ok, {SrcAddress, RemotePort}};
+        Error ->
+            ?display({error, Error}),
+            error({could_not_get_remote_port, Error})
+    end.
 
 % Controller
 
@@ -139,6 +155,22 @@ tick_trigger({ID, Socket}) ->
     {ok, {ID, Socket}}.
 
 %--- Internal ------------------------------------------------------------------
+
+ip(Host) ->
+    case inet:getaddr(Host, inet) of
+        {ok, Result} -> Result;
+        Error        -> error({inet_getaddr, Error})
+    end.
+
+port(Name, IP) ->
+    Epmd = net_kernel:epmd_module(),
+    case Epmd:port_please(Name, IP) of
+        {port, TcpPort, Version} ->
+            ?display({port_please, Name, TcpPort, Version}),
+            TcpPort;
+        Error ->
+            error({epmd_error, Error})
+    end.
 
 send(Socket, {IP, Port}, Data) ->
     ?display({send, Socket, {IP, Port}, byte_size(iolist_to_binary(Data))}),

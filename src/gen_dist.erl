@@ -151,47 +151,32 @@ callback_module() ->
 do_setup(Kernel, Node, Type, MyNode, LongOrShortNames, SetupTime) ->
     ?display({enter, [Kernel, Node, Type, MyNode, LongOrShortNames, SetupTime]}),
     [Name, Host] = split_node(Node ,LongOrShortNames),
-    case inet:getaddr(Host, inet) of
-        {ok, IP} ->
-            ?display({inet, getaddr, [Host, inet], {ok, IP}}),
-            Timer = dist_util:start_timer(SetupTime),
-            Epmd = net_kernel:epmd_module(),
-            case Epmd:port_please(Name, IP) of
-                {port, TcpPort, Version} ->
-                    ?display({port_please, Node, #{tcp_port => TcpPort, version => Version}}),
-                    dist_util:reset_timer(Timer),
-                    {ok, Socket} = gen_udp:open(0, [binary, {active, false}]),
-                    ok = gen_udp:send(Socket, Host, TcpPort, <<"hello\n">>),
-                    {Address, Port} = case gen_udp:recv(Socket, 2, 5000) of
-                        {ok, {SrcAddress, TcpPort, <<PortNumber:16>>}} ->
-                            {SrcAddress, PortNumber};
-                        Error ->
-                            ?display({error, Error}),
-                            death_row(Error)
-                    end,
-                    ID = {Address, Port},
-                    Module = gen_udp_dist, % FIXME: Get real module
-                    Controller = controller_spawn({ID, Socket}, Module),
-                    _ControllerPort = controller_set_supervisor(Controller, self()),
-                    HSData0 = hs_data(Controller),
-                    HSData = HSData0#hs_data{
-                        kernel_pid = Kernel,
-                        other_node = Node,
-                        this_node = MyNode,
-                        socket = Controller, % socket == controlling process
-                        timer = Timer,
-                        this_flags = 0,
-                        other_version = Version,
-                        request_type = Type
-                    },
-                    dist_util:handshake_we_started(HSData);
-                _Error ->
-                    ?display({error, {Epmd, port_please, [Name, IP], _Error}}),
-                    ?shutdown(Node)
-            end;
-        _Other ->
-            ?display({error, {inet, getaddr, [Host, inet], _Other}}),
-            ?shutdown(Node)
+    Mod = callback_module(),
+    Timer = dist_util:start_timer(SetupTime),
+    try
+        {ok, Arg} = Mod:setup(Name, Host), % TODO: Error handling?
+        dist_util:reset_timer(Timer),
+        Controller = controller_spawn(Arg, Mod),
+        _ControllerPort = controller_set_supervisor(Controller, self()),
+        HSData0 = hs_data(Controller),
+        HSData = HSData0#hs_data{
+            kernel_pid = Kernel,
+            other_node = Node,
+            this_node = MyNode,
+            % socket refers to the controller process pid:
+            socket = Controller,
+            timer = Timer,
+            this_flags = 0,
+            % Distribution protocol, version 5 since R6:
+            % http://erlang.org/doc/man/erl_epmd.html#port_please-3
+            other_version = 5,
+            request_type = Type
+        },
+        dist_util:handshake_we_started(HSData)
+    catch
+        Class:Reason ->
+        ?display({setup_failed, Class, Reason}),
+        ?shutdown(Node)
     end.
 
 do_accept(Kernel, Acceptor, Controller, MyNode, Allowed, SetupTime) ->
@@ -405,7 +390,6 @@ acceptor_close(#acc_state{acceptor = Pid}) ->
 % Controller
 
 controller_spawn(Arg, Module) ->
-    % TODO: Use behaviour here!
     ?display({enter, [Arg, Module]}),
     Pid = spawn_opt(fun() ->
         controller_init(#ctrl_state{mod = Module}, Arg)
