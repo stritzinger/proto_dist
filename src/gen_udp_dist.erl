@@ -39,14 +39,13 @@ acceptor_init() ->
 acceptor_info({udp, Socket, SrcAddress, SrcPort, <<"hello\n">>}, Socket) ->
     ?display({acceptor, {got_hello, SrcAddress, SrcPort}}),
     ID = {SrcAddress, SrcPort},
-    {spawn_controller, ID, Socket};
+    {spawn_controller, {connect, ID}, Socket};
 acceptor_info(_Other, Socket) ->
     ?display({unknown_msg, _Other}),
     {ok, Socket}.
 
-acceptor_controller_approved(ID, Pid, ListenSocket) ->
-    Pid ! {self(), get_port},
-    Port = receive {Pid, P} -> P end,
+acceptor_controller_approved({connect, ID}, Port, ListenSocket) ->
+    ?display({controller_approved, ID, Port, ListenSocket}),
     send(ListenSocket, ID, <<Port:16>>),
     ok.
 
@@ -54,35 +53,36 @@ acceptor_terminate(Socket) -> ok = gen_udp:close(Socket).
 
 % Outgoing
 
-setup(Name, Host) ->
-    Port = port(Name, ip(Host)),
-    % dist_util:reset_timer(Timer),
-    {ok, Socket} = gen_udp:open(0, [binary, {active, false}]),
-    ok = gen_udp:send(Socket, Host, Port, <<"hello\n">>),
-    case gen_udp:recv(Socket, 2, 5000) of
-        {ok, {SrcAddress, Port, <<RemotePort:16>>}} ->
-            {ok, {SrcAddress, RemotePort}};
-        Error ->
-            ?display({error, Error}),
-            error({could_not_get_remote_port, Error})
-    end.
+setup(Name, RemoteHost) ->
+    RemotePort = port(Name, ip(RemoteHost)),
+    {spawn_controller, {setup, RemoteHost, RemotePort}}.
 
 % Controller
 
-controller_init(ID) ->
+controller_init({setup, RemoteHost, RemotePort}) ->
     {ok, Socket} = gen_udp:open(0, [binary, {active, false}]),
-    receive
-        {Acceptor, get_port} ->
-            {ok, {_IP, Port}} = inet:sockname(Socket),
-            Acceptor ! {self(), Port}
+    ok = gen_udp:send(Socket, RemoteHost, RemotePort, <<"hello\n">>),
+    {ok, {IP, MyPort}} = inet:sockname(Socket),
+    ?display({waiting_for_port, Socket, IP, MyPort}),
+    ID = case gen_udp:recv(Socket, 2, 5000) of
+        {ok, {SrcAddress, RemotePort, <<ControllerPort:16>>}} ->
+            {SrcAddress, ControllerPort};
+        Error ->
+            ?display({error, Error}),
+            error({could_not_get_remote_port, Error})
     end,
-    {ok, {ID, Socket}}.
+    {reply, ok, {ID, Socket}};
+controller_init({connect, ID}) ->
+    {ok, Socket} = gen_udp:open(0, [binary, {active, false}]),
+    {ok, {_IP, Port}} = inet:sockname(Socket),
+    {reply, Port, {ID, Socket}}.
 
 controller_send(Packet, {ID, Socket} = State) ->
     send(Socket, ID, Packet),
     {ok, State}.
 
 controller_recv(Length, Timeout, {{IP, Port}, Socket} = State) ->
+    ?display({recv, Length, Timeout, State}),
     {ok, {IP, Port, Data}} = gen_udp:recv(Socket, Length, Timeout),
     {ok, Data, State}.
 

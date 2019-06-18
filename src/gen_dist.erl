@@ -21,6 +21,8 @@
 %--- Types ---------------------------------------------------------------------
 
 -type state() :: term().
+-type arg() :: term().
+-type reply() :: term().
 
 %--- Behaviour -----------------------------------------------------------------
 
@@ -31,17 +33,17 @@
     state()}
 }.
 
--callback acceptor_info(term(), state()) -> state().
+-callback acceptor_info(term(), state()) ->
+    {spawn_controller, arg(), state()} | {ok, state()}.
 
--callback acceptor_controller_approved(term(), pid(), state()) -> state().
+-callback acceptor_controller_approved(arg(), reply(), state()) ->
+    state().
 
--callback acceptor_terminate(state()) -> no_return().
+-callback acceptor_terminate(state()) ->
+    no_return().
 
--callback valid_hostname(inet:hostname()) -> boolean().
-
--callback controller_init(term()) -> {ok, state()}.
-
--optional_callbacks([valid_hostname/1]).
+-callback controller_init(term()) ->
+    {ok, state()}.
 
 %--- Records -------------------------------------------------------------------
 
@@ -154,10 +156,10 @@ do_setup(Kernel, Node, Type, MyNode, LongOrShortNames, SetupTime) ->
     Mod = callback_module(),
     Timer = dist_util:start_timer(SetupTime),
     try
-        {ok, Arg} = Mod:setup(Name, Host), % TODO: Error handling?
+        {spawn_controller, Arg} = Mod:setup(Name, Host), % TODO: Error handling?
         dist_util:reset_timer(Timer),
         Controller = controller_spawn(Arg, Mod),
-        _ControllerPort = controller_set_supervisor(Controller, self()),
+        ok = controller_finalize(Controller, self()),
         HSData0 = hs_data(Controller),
         HSData = HSData0#hs_data{
             kernel_pid = Kernel,
@@ -322,6 +324,13 @@ request(Pid, Req, Timeout) when is_pid(Pid) ->
         erlang:demonitor(Ref, [flush])
     end.
 
+respond(Fun) ->
+    receive {From, Ref, Msg} ->
+        {reply, Reply, Result} = Fun(Msg),
+        reply(From, Ref, Reply),
+        Result
+    end.
+
 reply(Pid, Ref, Reply) ->
     Pid ! {Ref, Reply}.
 
@@ -342,19 +351,13 @@ acceptor_listen(Pid) -> request(Pid, listen).
 
 acceptor_init(State) ->
     {ok, {Protocol, Family, Address}, ModState} = (State#acc_state.mod):acceptor_init(),
-    receive
-        {From, Ref, get_meta} ->
-            reply(From, Ref, {Protocol, Family, Address})
-    end,
-    receive
-        {From2, Ref2, listen} ->
-            reply(From2, Ref2, ok),
-            acceptor_loop(State#acc_state{
-                mod_state = ModState,
-                family = Family,
-                protocol = Protocol
-            })
-    end.
+    respond(fun(get_meta) -> {reply, {Protocol, Family, Address}, ok} end),
+    respond(fun(listen) -> {reply, ok, ok} end),
+    acceptor_loop(State#acc_state{
+        mod_state = ModState,
+        family = Family,
+        protocol = Protocol
+    }).
 
 acceptor_loop(#acc_state{kernel = Kernel, family = Family, protocol = Protocol} = State) ->
     ?display({'CALL', [State]}),
@@ -371,8 +374,8 @@ acceptor_loop(#acc_state{kernel = Kernel, family = Family, protocol = Protocol} 
                     receive
                         {Kernel, controller, SupervisorPid} ->
                             ?display(kernel_happy),
-                            controller_set_supervisor(CtrlPid, SupervisorPid),
-                            ok = ?CALL(State#acc_state, acceptor_controller_approved, [Arg, CtrlPid]),
+                            Reply = controller_finalize(CtrlPid, SupervisorPid),
+                            ok = ?CALL(State#acc_state, acceptor_controller_approved, [Arg, Reply]),
                             SupervisorPid ! {self(), controller};
                         {Kernel, unsupported_protocol} ->
                             ?display(kernel_sad),
@@ -396,20 +399,20 @@ controller_spawn(Arg, Module) ->
     end, [link, {priority, max}] ++ ?CONTROLLER_SPAWN_OPTS),
     Pid.
 
-controller_set_supervisor(Pid, SupervisorPid) ->
+controller_finalize(Pid, SupervisorPid) ->
     ok = request(Pid, {supervisor, SupervisorPid}),
     % We unlink to avoid crashing acceptor if controller process
     % dies:
     unlink(Pid),
-    ok.
+    request(Pid, get_reply).
 
 controller_init(#ctrl_state{mod = Module} = State, Arg) ->
-    receive
-        {From, Ref, {supervisor, Supervisor}} ->
-            link(Supervisor),
-            reply(From, Ref, ok)
-    end,
-    {ok, ModState} = Module:controller_init(Arg),
+    Supervisor = respond(fun({supervisor, Supervisor}) ->
+        link(Supervisor),
+        {reply, ok, Supervisor}
+    end),
+    {reply, Reply, ModState} = Module:controller_init(Arg),
+    ok = respond(fun(get_reply) -> {reply, Reply, ok} end),
     TickHandler = spawn_opt(fun() ->
         controller_tick_init(State#ctrl_state{mod_state = ModState})
     end, [link, {priority, max}] ++ ?CONTROLLER_SPAWN_OPTS),
@@ -476,12 +479,10 @@ controller_input_spawn(State, DHandle, Supervisor) ->
 
 controller_input_init(#ctrl_state{mod = Module} = State, DHandle, Supervisor) ->
     link(Supervisor),
-    CtrlModState = receive
-        % Ensure we don't start before registered as input handler:
-        {From, Ref, {activate, S}} ->
-            reply(From, Ref, ok),
-            S
-    end,
+    % Ensure we don't start before registered as input handler:
+    CtrlModState = respond(fun({activate, S}) ->
+        {reply, ok, S}
+    end),
     {ok, InputModState} = Module:input_init(CtrlModState),
     controller_input_loop(State#ctrl_state{mod_state = InputModState}, DHandle).
 
