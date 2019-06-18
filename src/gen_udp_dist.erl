@@ -62,8 +62,8 @@ setup(Name, RemoteHost) ->
 controller_init({setup, RemoteHost, RemotePort}) ->
     {ok, Socket} = gen_udp:open(0, [binary, {active, false}]),
     ok = gen_udp:send(Socket, RemoteHost, RemotePort, <<"hello\n">>),
-    {ok, {IP, MyPort}} = inet:sockname(Socket),
-    ?display({waiting_for_port, Socket, IP, MyPort}),
+    {ok, {_IP, _MyPort}} = inet:sockname(Socket),
+    ?display({waiting_for_port, Socket, _IP, _MyPort}),
     ID = case gen_udp:recv(Socket, 2, 5000) of
         {ok, {SrcAddress, RemotePort, <<ControllerPort:16>>}} ->
             {SrcAddress, ControllerPort};
