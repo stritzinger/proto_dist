@@ -27,12 +27,7 @@
 %--- Behaviour -----------------------------------------------------------------
 
 -callback acceptor_init() ->
-    {ok, {
-        inet:socket_protocol(),
-        inet:address_family(),
-        {inet:ip_address(), inet:port_number()},
-        state()}
-    }.
+    {ok, #net_address{}, state()}.
 
 -callback acceptor_info(term(), state()) ->
     {spawn_controller, arg(), state()} | {ok, state()}.
@@ -126,15 +121,11 @@ listen(Name) ->
     Mod = callback_module(),
     State0 = #acc_state{mod = Mod},
     State1 = acceptor_spawn(State0),
-    {Protocol, Family, {_IP, Port} = Address} = acceptor_get_meta(State1#acc_state.acceptor),
+    Address = acceptor_get_address(State1#acc_state.acceptor),
+    {_IP, Port} = Address#net_address.address,
     {ok, Host} = inet:gethostname(),
     {ok, Creation} = (net_kernel:epmd_module()):register_node(Name, Port),
-    NetAddress = #net_address{
-        address = Address,
-        host = Host,
-        protocol = Protocol,
-        family = Family
-    },
+    NetAddress = Address#net_address{host = Host},
     {ok, {State1, NetAddress, Creation}}.
 
 -spec accept(term()) -> pid().
@@ -371,18 +362,18 @@ acceptor_spawn(State) ->
     ]),
     State#acc_state{acceptor = Pid}.
 
-acceptor_get_meta(Pid) -> request(Pid, get_meta).
+acceptor_get_address(Pid) -> request(Pid, get_address).
 
 acceptor_listen(Pid) -> request(Pid, listen).
 
 acceptor_init(State) ->
-    {ok, {Protocol, Family, Address}, ModState} = (State#acc_state.mod):acceptor_init(),
-    respond(fun(get_meta) -> {reply, {Protocol, Family, Address}, ok} end),
+    {ok, Address, ModState} = (State#acc_state.mod):acceptor_init(),
+    respond(fun(get_address) -> {reply, Address, ok} end),
     respond(fun(listen) -> {reply, ok, ok} end),
     acceptor_loop(State#acc_state{
         mod_state = ModState,
-        family = Family,
-        protocol = Protocol
+        family = Address#net_address.family,
+        protocol = Address#net_address.protocol
     }).
 
 acceptor_loop(#acc_state{kernel = Kernel, family = Family, protocol = Protocol} = State) ->

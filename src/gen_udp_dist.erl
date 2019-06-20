@@ -36,7 +36,12 @@ acceptor_init() ->
     {ok, _Port} = inet:port(ListenSocket),
     ?display({socket, ListenSocket, _Port}),
     {ok, Address} = inet:sockname(ListenSocket),
-    {ok, {udp, inet, Address}, ListenSocket}.
+    NetAddress = #net_address{
+        address = Address,
+        protocol = udp,
+        family = inet
+    },
+    {ok, NetAddress, ListenSocket}.
 
 acceptor_info({udp, Socket, SrcAddress, SrcPort, <<"hello\n">>}, Socket) ->
     ?display({acceptor, {got_hello, SrcAddress, SrcPort}}),
