@@ -60,7 +60,8 @@
     mod          :: module(),
     mod_state    :: state(),
     tick_handler :: pid(),
-    supervisor   :: pid()
+    supervisor   :: pid(),
+    address      :: #net_address{}
 }).
 
 %--- Macros --------------------------------------------------------------------
@@ -404,7 +405,7 @@ controller_init(#ctrl_state{mod = Module} = State, Arg) ->
         link(Supervisor),
         {reply, ok, Supervisor}
     end),
-    {reply, Reply, ModState} = Module:controller_init(Arg),
+    {reply, Reply, Address, ModState} = Module:controller_init(Arg),
     ok = respond(fun(get_reply) -> {reply, Reply, ok} end),
     TickHandler = spawn_opt(fun() ->
         controller_tick_init(State#ctrl_state{mod_state = ModState})
@@ -412,10 +413,11 @@ controller_init(#ctrl_state{mod = Module} = State, Arg) ->
     controller_setup_loop(State#ctrl_state{
         supervisor = Supervisor,
         tick_handler = TickHandler,
-        mod_state = ModState
+        mod_state = ModState,
+        address = Address
     }).
 
-controller_setup_loop(#ctrl_state{mod_state = {ID, Socket}} = State) ->
+controller_setup_loop(State) ->
     receive
         {From, Ref, tick_handler} ->
             reply(From, Ref, State#ctrl_state.tick_handler),
@@ -432,11 +434,8 @@ controller_setup_loop(#ctrl_state{mod_state = {ID, Socket}} = State) ->
             controller_setup_loop(State#ctrl_state{mod_state = NewModState});
         {From, Ref, {address, Node}} ->
             {node, _Name, Host} = dist_util:split_node(Node),
-            reply(From, Ref, #net_address{
-                address = ID,
-                host = Host,
-                protocol = udp,
-                family = inet
+            reply(From, Ref, (State#ctrl_state.address)#net_address{
+                host = Host
             }),
             controller_setup_loop(State);
         {From, Ref, {handshake_complete, _Node, DHandle}} ->

@@ -25,6 +25,8 @@
 -define(display(Term), ok).
 % -define(display(Term), erlang:display({?time, self(), ?MODULE, ?FUNCTION_NAME, Term})).
 
+-include_lib("kernel/include/net_address.hrl").
+
 %--- Callbacks -----------------------------------------------------------------
 
 % Acceptor
@@ -71,11 +73,21 @@ controller_init({setup, RemoteHost, RemotePort}) ->
             ?display({error, Error}),
             error({could_not_get_remote_port, Error})
     end,
-    {reply, ok, {ID, Socket}};
+    Address = #net_address{
+        address = ID,
+        protocol = udp,
+        family = inet
+    },
+    {reply, ok, Address, {ID, Socket}};
 controller_init({connect, ID}) ->
     {ok, Socket} = gen_udp:open(0, [binary, {active, false}]),
     {ok, {_IP, Port}} = inet:sockname(Socket),
-    {reply, Port, {ID, Socket}}.
+    Address = #net_address{
+        address = ID,
+        protocol = udp,
+        family = inet
+    },
+    {reply, Port, Address, {ID, Socket}}.
 
 controller_send(Packet, {ID, Socket} = State) ->
     send(Socket, ID, Packet),
