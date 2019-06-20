@@ -176,8 +176,8 @@ do_setup(Kernel, Node, Type, MyNode, LongOrShortNames, SetupTime) ->
         },
         dist_util:handshake_we_started(HSData)
     catch
-        Class:Reason ->
-        ?display({setup_failed, Class, Reason}),
+        _Class:_Reason ->
+        ?display({setup_failed, _Class, _Reason}),
         ?shutdown(Node)
     end.
 
