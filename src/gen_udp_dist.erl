@@ -55,15 +55,15 @@ acceptor_terminate(Socket) -> ok = gen_udp:close(Socket).
 
 % Outgoing
 
-setup(Name, RemoteHost) ->
-    RemotePort = port(Name, ip(RemoteHost)),
-    {spawn_controller, {setup, RemoteHost, RemotePort}}.
+setup(NodeName, HostName) ->
+    RemotePort = port(NodeName, ip(HostName)),
+    {spawn_controller, {setup, HostName, RemotePort}}.
 
 % Controller
 
-controller_init({setup, RemoteHost, RemotePort}) ->
+controller_init({setup, HostName, RemotePort}) ->
     {ok, Socket} = gen_udp:open(0, [binary, {active, false}]),
-    ok = gen_udp:send(Socket, RemoteHost, RemotePort, <<"hello\n">>),
+    ok = gen_udp:send(Socket, HostName, RemotePort, <<"hello\n">>),
     {ok, {_IP, _MyPort}} = inet:sockname(Socket),
     ?display({waiting_for_port, Socket, _IP, _MyPort}),
     ID = case gen_udp:recv(Socket, 2, 5000) of

@@ -26,12 +26,13 @@
 
 %--- Behaviour -----------------------------------------------------------------
 
--callback acceptor_init() -> {ok, {
-    inet:socket_protocol(),
-    inet:address_family(),
-    {inet:ip_address(), inet:port_number()},
-    state()}
-}.
+-callback acceptor_init() ->
+    {ok, {
+        inet:socket_protocol(),
+        inet:address_family(),
+        {inet:ip_address(), inet:port_number()},
+        state()}
+    }.
 
 -callback acceptor_info(term(), state()) ->
     {spawn_controller, arg(), state()} | {ok, state()}.
@@ -42,7 +43,38 @@
 -callback acceptor_terminate(state()) ->
     no_return().
 
--callback controller_init(term()) ->
+-callback setup(NodeName::atom(), HostName::string()) ->
+    {spawn_controller, arg()}.
+
+-callback controller_init(arg()) ->
+    {reply, reply(), #net_address{}, state()}.
+
+-callback controller_send(Packet::iodata(), state()) ->
+    {ok, state()}.
+
+-callback controller_recv(Length::pos_integer(), Timeout::pos_integer(),
+  state()) ->
+    {ok, iodata(), state()}.
+
+-callback controller_done(InputHandler::pid(), state()) ->
+    {ok, state()}.
+
+-callback output_init(arg()) ->
+    {ok, state()}.
+
+-callback output_send(Packet::iodata(), state()) ->
+    {ok, state()}.
+
+-callback input_init(arg()) ->
+    {ok, state()}.
+
+-callback input_info(Message::term(), state()) ->
+    {noreply, state()} | {reply, Reply::term(), state()}.
+
+-callback tick_init(arg()) ->
+    {ok, state()}.
+
+-callback tick_trigger(state()) ->
     {ok, state()}.
 
 %--- Records -------------------------------------------------------------------
