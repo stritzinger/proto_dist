@@ -252,17 +252,17 @@ hs_data(DistController) ->
                     Other
             end
         end,
-        f_setopts_pre_nodeup = fun(Controller) ->
-            ?display({f_setopts_pre_nodeup, Controller}),
-            request(Controller, pre_nodeup)
+        f_setopts_pre_nodeup = fun(_Controller) ->
+            ?display({f_setopts_pre_nodeup, _Controller}),
+            ok
         end,
-        f_setopts_post_nodeup = fun(Controller) ->
-            ?display({f_setopts_post_nodeup, Controller}),
-            request(Controller, post_nodeup)
+        f_setopts_post_nodeup = fun(_Controller) ->
+            ?display({f_setopts_post_nodeup, _Controller}),
+            ok
         end,
         f_getll = fun(Controller) ->
             ?display({f_getll, Controller}),
-            request(Controller, getll)
+            {ok, Controller}
         end,
         f_handshake_complete = fun(Controller, Node, DHandle) ->
             ?display({f_handshake_complete, Controller, Node, DHandle}),
@@ -276,13 +276,6 @@ hs_data(DistController) ->
                 Reply ->
                     Reply
             end
-        end,
-        mf_setopts = fun(_Controller, _Opts) ->
-            ?display({mf_setopts, _Controller, _Opts})
-        end,
-        mf_getopts = fun(Controller, Opts) ->
-            ?display({mf_getopts, Controller, Opts}),
-            request(Controller, {getopts, Opts})
         end,
         mf_getstat = fun(_Controller) ->
             % ?display({mf_getstat, Controller}),
@@ -445,20 +438,6 @@ controller_setup_loop(#ctrl_state{mod_state = {ID, Socket}} = State) ->
                 protocol = udp,
                 family = inet
             }),
-            controller_setup_loop(State);
-        {From, Ref, pre_nodeup} ->
-            Res = inet:setopts(Socket, [{active, false}]),
-            reply(From, Ref, Res),
-            controller_setup_loop(State);
-        {From, Ref, post_nodeup} ->
-            Res = inet:setopts(Socket, [{active, false}]),
-            reply(From, Ref, Res),
-            controller_setup_loop(State);
-        {From, Ref, getll} ->
-            reply(From, Ref, {ok, self()}),
-            controller_setup_loop(State);
-        {From, Ref, {getopts, Opts}} ->
-            reply(From, Ref, inet:getopts(Socket, Opts)),
             controller_setup_loop(State);
         {From, Ref, {handshake_complete, _Node, DHandle}} ->
             reply(From, Ref, ok),
